@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from src.config.config import load_model_prices
 from src.infra.store import InMemoryRateLimitStore
 from src.models.session import Session, SessionContext
 from src.models.trace import PipelineSpan, Tracer
@@ -334,6 +335,9 @@ class _FixedRetriever(PolicyRetrieverBase):
 def _make_llm_fn(decision_dict: dict):
     """Return an LLM stub that always returns decision_dict."""
     def _fn(model_id, messages, tracer, system=None):
+        prices = load_model_prices()
+        p = prices.get(model_id, {"input_price_per_token": 0.0, "output_price_per_token": 0.0})
+        cost = 10 * p["input_price_per_token"] + 5 * p["output_price_per_token"]
         if tracer is not None:
             tracer.append_span(PipelineSpan(
                 name="llm",
@@ -341,14 +345,14 @@ def _make_llm_fn(decision_dict: dict):
                 outputs={
                     "content": json.dumps(decision_dict),
                     "input_tokens": 10, "output_tokens": 5,
-                    "cached_tokens": 0, "cost": 0.0, "retries": 0,
+                    "cached_tokens": 0, "cost": cost, "retries": 0,
                 },
                 latency_ms=1.0,
             ))
         return {
             "content": json.dumps(decision_dict),
             "input_tokens": 10, "output_tokens": 5,
-            "cached_tokens": 0, "cost": 0.0, "retries": 0,
+            "cached_tokens": 0, "cost": cost, "retries": 0,
             "model_id": model_id,
         }
     return _fn

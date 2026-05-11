@@ -5,8 +5,15 @@ from pathlib import Path
 
 import pytest
 
+from src.config.config import load_model_prices
 from src.evaluation.runner import run_golden_suite
 from src.models.trace import PipelineSpan
+
+
+def _compute_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
+    prices = load_model_prices()
+    p = prices.get(model_id, {"input_price_per_token": 0.0, "output_price_per_token": 0.0})
+    return input_tokens * p["input_price_per_token"] + output_tokens * p["output_price_per_token"]
 
 
 def _stub_llm(decision_dict: dict, judge_verdict: dict):
@@ -20,16 +27,17 @@ def _stub_llm(decision_dict: dict, judge_verdict: dict):
             content = json.dumps(decision_dict)
         else:
             content = json.dumps(judge_verdict)
+        cost = _compute_cost(model_id, 5, 5)
         if tracer is not None:
             tracer.append_span(PipelineSpan(
                 name="llm",
                 inputs={"model_id": model_id, "message_count": len(messages)},
                 outputs={"content": content, "input_tokens": 5, "output_tokens": 5,
-                         "cached_tokens": 0, "cost": 0.0, "retries": 0},
+                         "cached_tokens": 0, "cost": cost, "retries": 0},
                 latency_ms=1.0,
             ))
         return {"content": content, "input_tokens": 5, "output_tokens": 5,
-                "cached_tokens": 0, "cost": 0.0, "retries": 0, "model_id": model_id}
+                "cached_tokens": 0, "cost": cost, "retries": 0, "model_id": model_id}
     return _fn
 
 
@@ -126,8 +134,9 @@ def test_run_golden_suite_multiple_scenarios(tmp_path):
     def _multi_fn(model_id, messages, tracer, system=None):
         content = responses[idx[0]]
         idx[0] += 1
+        cost = _compute_cost(model_id, 5, 5)
         return {"content": content, "input_tokens": 5, "output_tokens": 5,
-                "cached_tokens": 0, "cost": 0.0, "retries": 0, "model_id": model_id}
+                "cached_tokens": 0, "cost": cost, "retries": 0, "model_id": model_id}
 
     _write_scenario(tmp_path, _SCENARIO_YAML, "s1.yaml")
     _write_scenario(tmp_path, _SCENARIO_YAML.replace("test_scenario", "test_scenario_2"), "s2.yaml")

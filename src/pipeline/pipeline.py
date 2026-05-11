@@ -132,6 +132,12 @@ class Pipeline:
 
 def _write_trace(tracer: Tracer) -> None:
     log_path = os.environ.get("PIPELINE_LOG", "pipeline.log")
-    entry = json.dumps({"spans": [s.model_dump() for s in tracer.spans]})
+    total_latency_ms = sum(s.latency_ms for s in tracer.spans)
+    total_cost = sum(s.outputs.get("cost", 0.0) for s in tracer.spans)
+    entry = json.dumps({
+        "total_latency_ms": total_latency_ms,
+        "total_cost": f"{total_cost:.6f}",
+        "spans": [s.model_dump() for s in tracer.spans],
+    })
     with open(log_path, "a") as f:
         f.write(entry + "\n")
