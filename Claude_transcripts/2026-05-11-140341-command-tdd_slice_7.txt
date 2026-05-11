@@ -1,0 +1,681 @@
+╭─── Claude Code v2.1.138 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                   Welcome back j!                  │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Internal fixes          │
+│ Sonnet 4.6 · Claude Pro · jaykrzyston@gmail.com's  │ [VSCode] Fixed extensi… │
+│ Organization                                       │ Added `CLAUDE_CODE_ENA… │
+│       ~/Documents/Cybersecurity_Policy_Agent       │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ /engineering:tdd Slice 7: Output Filter — PII stripping, trace sanitization,  
+unit tests #8                                                                   
+
+⏺ Skill(engineering:tdd)
+  ⎿  Successfully loaded skill
+
+⏺ Let me explore the codebase to understand the current structure before
+  planning.
+
+  Searched for 2 patterns, read 8 files (ctrl+o to expand)
+
+⏺ Now let me look at existing test files to understand the testing patterns
+  used:
+
+  Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+⏺ Bash(python -m pytest tests/ -q 2>&1 | tail -20)
+  ⎿  (eval):1: command not found: python
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1 | tail -20)
+  ⎿  ..............................................
+        [100%]
+     46 passed in 2.40s
+
+⏺ Good, all 46 tests pass. Now I have a clear picture. Let me plan the TDD
+  approach for Slice 7.
+
+  Summary of what I found:
+
+  - filter_output(tool_name, raw_output, tracer) -> dict is the stub — returns
+  raw_output unchanged
+  - Tests file is empty (just a docstring)
+  - Tool outputs are simple dicts per mock implementations
+  - Policy rules drive what gets stripped:
+    - §2.2: strip personal contact info from lookup_employee (personal_email,
+  personal_phone, home_address)
+    - §4.2: strip HR sensitive fields (compensation, performance_rating,
+  disciplinary_notes) from lookup_employee and query_hr_database results
+    - §1.3.a: strip temporary_password from reset_password
+  - ADR-0002: tracer span must record filtered result (not raw PII) — trace
+  sanitization
+  - Unknown tools: pass through unchanged
+
+  Proposed TDD cycles (tracer bullets, one behavior at a time):
+
+  1. lookup_employee strips personal_email
+  2. lookup_employee strips personal_phone
+  3. lookup_employee strips home_address
+  4. lookup_employee keeps safe fields untouched (employee_id, name, work_email)
+  5. reset_password strips temporary_password
+  6. query_hr_database strips compensation from result records
+  7. query_hr_database strips performance_rating and disciplinary_notes from
+  result records
+  8. Unknown tool passes through unchanged
+  9. Tracer span is appended on filter call
+  10. Tracer span does not contain raw PII (trace sanitization)
+
+⏺ User answered Claude's questions:
+  ⎿  · Does this plan look right for Slice 7? Any changes to scope or 
+     prioritization? → Looks good, start TDD
+
+⏺ ---
+  Cycle 1 — RED: lookup_employee strips personal_email
+
+⏺ Write(tests/test_output_filter.py)
+  ⎿  Added 14 lines, removed 1 line
+       1 -"""Test stubs for Output Filter — implemented in Slice 7."""   
+       1 +"""Output Filter tests: PII stripping and trace sanitization pe
+         +r §2.2, §4.2, §1.3.a."""                                       
+       2 +                                                               
+       3 +from src.pipeline.output_filter import filter_output           
+       4 +                                                               
+       5 +                                                               
+       6 +def test_lookup_employee_strips_personal_email():              
+       7 +    raw = {                                                    
+       8 +        "employee_id": "alice",                                
+       9 +        "name": "Alice Smith",                                 
+      10 +        "work_email": "alice@gaggia.com",                      
+      11 +        "personal_email": "alice@gmail.com",                   
+      12 +    }                                                          
+      13 +    result = filter_output("lookup_employee", raw, tracer=None)
+      14 +    assert "personal_email" not in result                      
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  Error: Exit code 1
+     F                                                                        
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     __________________ test_lookup_employee_strips_personal_email 
+     __________________
+
+         def test_lookup_employee_strips_personal_email():
+             raw = {
+                 "employee_id": "alice",
+                 "name": "Alice Smith",
+                 "work_email": "alice@gaggia.com",
+     … +10 lines (ctrl+o to expand)
+
+⏺ RED confirmed. Now GREEN — minimal implementation:
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 2 lines
+      12      Returns:
+      13          Filtered output dict with PII fields removed per policy
+           §2.2, §4.2, §9.x.
+      14      """
+      15 +    if tool_name == "lookup_employee":                         
+      16 +        raw_output.pop("personal_email", None)                 
+      17      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  .
+        [100%]
+     1 passed in 0.00s
+
+⏺ GREEN. ---
+
+  Cycle 2 — RED: lookup_employee strips personal_phone
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 11 lines
+      12      }
+      13      result = filter_output("lookup_employee", raw, tracer=None)
+      14      assert "personal_email" not in result
+      15 +                                                               
+      16 +                                                               
+      17 +def test_lookup_employee_strips_personal_phone():              
+      18 +    raw = {                                                    
+      19 +        "employee_id": "alice",                                
+      20 +        "name": "Alice Smith",                                 
+      21 +        "work_phone": "555-0100",                              
+      22 +        "personal_phone": "555-9999",                          
+      23 +    }                                                          
+      24 +    result = filter_output("lookup_employee", raw, tracer=None)
+      25 +    assert "personal_phone" not in result                      
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)  ⎿  Error: Exit code 1
+     .F                                                                       
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     __________________ test_lookup_employee_strips_personal_phone 
+     __________________
+
+         def test_lookup_employee_strips_personal_phone():
+             raw = {
+                 "employee_id": "alice",
+                 "name": "Alice Smith",
+                 "work_phone": "555-0100",
+     … +10 lines (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 1 line
+      14      """
+      15      if tool_name == "lookup_employee":
+      16          raw_output.pop("personal_email", None)
+      17 +        raw_output.pop("personal_phone", None)                 
+      18      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ..
+        [100%]
+     2 passed in 0.00s
+
+⏺ GREEN. ---
+
+  Cycle 3 — RED: lookup_employee strips home_address
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 11 lines
+      23      }
+      24      result = filter_output("lookup_employee", raw, tracer=None)
+      25      assert "personal_phone" not in result
+      26 +                                                               
+      27 +                                                               
+      28 +def test_lookup_employee_strips_home_address():                
+      29 +    raw = {                                                    
+      30 +        "employee_id": "alice",                                
+      31 +        "name": "Alice Smith",                                 
+      32 +        "office_location": "London",                           
+      33 +        "home_address": "123 Main St, London",                 
+      34 +    }                                                          
+      35 +    result = filter_output("lookup_employee", raw, tracer=None)
+      36 +    assert "home_address" not in result                        
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  Error: Exit code 1
+     ..F                                                                      
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     ___________________ test_lookup_employee_strips_home_address 
+     ___________________
+
+         def test_lookup_employee_strips_home_address():
+             raw = {
+                 "employee_id": "alice",
+                 "name": "Alice Smith",
+                 "office_location": "London",
+     … +10 lines (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 1 line
+      15      if tool_name == "lookup_employee":
+      16          raw_output.pop("personal_email", None)
+      17          raw_output.pop("personal_phone", None)
+      18 +        raw_output.pop("home_address", None)                   
+      19      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ...
+        [100%]
+     3 passed in 0.00s
+
+⏺ GREEN. Refactor opportunity: three sequential pops on lookup_employee —
+  extract to a field list.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 5 lines, removed 3 lines
+      1  """Output Filter: strips PII and formats tool output before it r
+         eaches the Reasoner or user."""
+      2  
+      3 +# Fields stripped per §2.2 (personal contact info) and §4.2 (HR 
+        +sensitive data).                                                
+      4 +_LOOKUP_EMPLOYEE_STRIP = {"personal_email", "personal_phone", "h
+        +ome_address"}                                                   
+      5  
+      6 +                                                                
+      7  def filter_output(tool_name: str, raw_output: dict, tracer) -> d
+         ict:
+      8      """Strip PII and format tool output before it reaches the Re
+         asoner or user.
+      9  
+     ...
+      16          Filtered output dict with PII fields removed per policy
+           §2.2, §4.2, §9.x.
+      17      """
+      18      if tool_name == "lookup_employee":
+      16 -        raw_output.pop("personal_email", None)                 
+      17 -        raw_output.pop("personal_phone", None)                 
+      18 -        raw_output.pop("home_address", None)                   
+      19 +        for field in _LOOKUP_EMPLOYEE_STRIP:                   
+      20 +            raw_output.pop(field, None)                        
+      21      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ...
+        [100%]
+     3 passed in 0.00s
+
+⏺ GREEN after refactor. ---
+
+  Cycle 4 — RED: lookup_employee keeps safe fields
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 19 lines
+      34      }
+      35      result = filter_output("lookup_employee", raw, tracer=None)
+      36      assert "home_address" not in result
+      37 +                                                               
+      38 +                                                               
+      39 +def test_lookup_employee_keeps_safe_fields():                  
+      40 +    raw = {                                                    
+      41 +        "employee_id": "alice",                                
+      42 +        "name": "Alice Smith",                                 
+      43 +        "work_email": "alice@gaggia.com",                      
+      44 +        "work_phone": "555-0100",                              
+      45 +        "office_location": "London",                           
+      46 +        "personal_email": "alice@gmail.com",                   
+      47 +        "personal_phone": "555-9999",                          
+      48 +        "home_address": "123 Main St",                         
+      49 +    }                                                          
+      50 +    result = filter_output("lookup_employee", raw, tracer=None)
+      51 +    assert result["employee_id"] == "alice"                    
+      52 +    assert result["name"] == "Alice Smith"                     
+      53 +    assert result["work_email"] == "alice@gaggia.com"          
+      54 +    assert result["work_phone"] == "555-0100"                  
+      55 +    assert result["office_location"] == "London"               
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ....
+        [100%]
+     4 passed in 0.01s
+
+⏺ GREEN immediately — the implementation only pops specific fields so safe
+  fields are naturally preserved. ---
+
+  Cycle 5 — RED: reset_password strips temporary_password
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 8 lines
+      53      assert result["work_email"] == "alice@gaggia.com"
+      54      assert result["work_phone"] == "555-0100"
+      55      assert result["office_location"] == "London"
+      56 +                                                               
+      57 +                                                               
+      58 +def test_reset_password_strips_temporary_password():           
+      59 +    raw = {"status": "reset", "account_id": "alice", "temporary
+         +_password": "Tmp$ecret1"}                                      
+      60 +    result = filter_output("reset_password", raw, tracer=None) 
+      61 +    assert "temporary_password" not in result                  
+      62 +    assert result["status"] == "reset"                         
+      63 +    assert result["account_id"] == "alice"                     
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  Error: Exit code 1
+     ....F                                                                    
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     ________________ test_reset_password_strips_temporary_password 
+     _________________
+
+         def test_reset_password_strips_temporary_password():
+             raw = {"status": "reset", "account_id": "alice", 
+     "temporary_password": "Tmp$ecret1"}
+             result = filter_output("reset_password", raw, tracer=None)
+     >       assert "temporary_password" not in result
+     E       AssertionError: assert 'temporary_password' not in {'account_id': 
+     'alice', 'status': 'reset', 'temporary_password': 'Tmp$ecret1'}
+     … +5 lines (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 2 lines
+      18      if tool_name == "lookup_employee":
+      19          for field in _LOOKUP_EMPLOYEE_STRIP:
+      20              raw_output.pop(field, None)
+      21 +    elif tool_name == "reset_password":                        
+      22 +        raw_output.pop("temporary_password", None)             
+      23      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  .....
+        [100%]
+     5 passed in 0.01s
+
+⏺ GREEN. ---
+
+  Cycle 6 — RED: query_hr_database strips compensation from result records
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 12 lines
+      61      assert "temporary_password" not in result
+      62      assert result["status"] == "reset"
+      63      assert result["account_id"] == "alice"
+      64 +                                                               
+      65 +                                                               
+      66 +def test_query_hr_database_strips_compensation_from_results(): 
+      67 +    raw = {                                                    
+      68 +        "query": "SELECT * FROM employees WHERE id='alice'",   
+      69 +        "results": [                                           
+      70 +            {"employee_id": "alice", "name": "Alice Smith", "co
+         +mpensation": 120000},                                          
+      71 +        ],                                                     
+      72 +    }                                                          
+      73 +    result = filter_output("query_hr_database", raw, tracer=Non
+         +e)                                                             
+      74 +    assert "compensation" not in result["results"][0]          
+      75 +    assert result["results"][0]["employee_id"] == "alice"      
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  Error: Exit code 1
+     .....F                                                                   
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     ___________ test_query_hr_database_strips_compensation_from_results 
+     ____________
+
+         def test_query_hr_database_strips_compensation_from_results():
+             raw = {
+                 "query": "SELECT * FROM employees WHERE id='alice'",
+                 "results": [
+                     {"employee_id": "alice", "name": "Alice Smith", 
+     "compensation": 120000},
+     … +10 lines (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)  ⎿  Added 3 lines
+      20              raw_output.pop(field, None)
+      21      elif tool_name == "reset_password":
+      22          raw_output.pop("temporary_password", None)
+      23 +    elif tool_name == "query_hr_database":                     
+      24 +        for record in raw_output.get("results", []):           
+      25 +            record.pop("compensation", None)                   
+      26      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ......
+        [100%]
+     6 passed in 0.00s
+
+⏺ GREEN. ---
+
+  Cycle 7 — RED: query_hr_database strips performance_rating and 
+  disciplinary_notes
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 19 lines
+      73      result = filter_output("query_hr_database", raw, tracer=Non
+          e)
+      74      assert "compensation" not in result["results"][0]
+      75      assert result["results"][0]["employee_id"] == "alice"
+      76 +                                                               
+      77 +                                                               
+      78 +def test_query_hr_database_strips_hr_sensitive_fields():       
+      79 +    raw = {                                                    
+      80 +        "query": "SELECT * FROM employees WHERE id='alice'",   
+      81 +        "results": [                                           
+      82 +            {                                                  
+      83 +                "employee_id": "alice",                        
+      84 +                "name": "Alice Smith",                         
+      85 +                "performance_rating": "exceeds",               
+      86 +                "disciplinary_notes": "written warning 2024-01"
+         +,                                                              
+      87 +            },                                                 
+      88 +        ],                                                     
+      89 +    }                                                          
+      90 +    result = filter_output("query_hr_database", raw, tracer=Non
+         +e)                                                             
+      91 +    record = result["results"][0]                              
+      92 +    assert "performance_rating" not in record                  
+      93 +    assert "disciplinary_notes" not in record                  
+      94 +    assert record["employee_id"] == "alice"                    
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  Error: Exit code 1
+     ......F                                                                  
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     ______________ test_query_hr_database_strips_hr_sensitive_fields 
+     _______________
+
+         def test_query_hr_database_strips_hr_sensitive_fields():
+             raw = {
+                 "query": "SELECT * FROM employees WHERE id='alice'",
+                 "results": [
+                     {
+     … +16 lines (ctrl+o to expand)
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 2 lines, removed 1 line
+      22          raw_output.pop("temporary_password", None)
+      23      elif tool_name == "query_hr_database":
+      24          for record in raw_output.get("results", []):
+      25 -            record.pop("compensation", None)                   
+      25 +            for field in _HR_SENSITIVE_STRIP:                  
+      26 +                record.pop(field, None)                        
+      27      return raw_output
+
+⏺ Update(src/pipeline/output_filter.py)
+  ⎿  Added 3 lines, removed 1 line
+      1  """Output Filter: strips PII and formats tool output before it r
+         eaches the Reasoner or user."""
+      2  
+      3 -# Fields stripped per §2.2 (personal contact info) and §4.2 (HR 
+        -sensitive data).                                                
+      3 +# Fields stripped per §2.2 (personal contact info).             
+      4  _LOOKUP_EMPLOYEE_STRIP = {"personal_email", "personal_phone", "h
+         ome_address"}
+      5 +# Fields stripped per §4.2 (compensation, performance, disciplin
+        +ary records).                                                   
+      6 +_HR_SENSITIVE_STRIP = {"compensation", "performance_rating", "di
+        +sciplinary_notes"}                                              
+      7  
+      8  
+      9  def filter_output(tool_name: str, raw_output: dict, tracer) -> d
+         ict:
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  .......
+        [100%]
+     7 passed in 0.01s
+
+⏺ GREEN. ---
+
+  Cycle 8 — RED: Unknown tool passes through unchanged
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 6 lines
+       92      assert "performance_rating" not in record
+       93      assert "disciplinary_notes" not in record
+       94      assert record["employee_id"] == "alice"
+       95 +                                                              
+       96 +                                                              
+       97 +def test_unknown_tool_passes_through_unchanged():             
+       98 +    raw = {"status": "ok", "some_field": "value"}             
+       99 +    result = filter_output("some_future_tool", raw, tracer=Non
+          +e)                                                            
+      100 +    assert result == {"status": "ok", "some_field": "value"}  
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  ........
+        [100%]
+     8 passed in 0.01s
+
+⏺ GREEN immediately — the if/elif chain naturally falls through for unknown
+  tools. ---
+
+  Cycle 9 — RED: Tracer span is appended on filter call
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 1 line
+      1  """Output Filter tests: PII stripping and trace sanitization per
+          §2.2, §4.2, §1.3.a."""
+      2  
+      3 +from src.models.trace import Tracer                             
+      4  from src.pipeline.output_filter import filter_output
+      5  
+      6  
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 8 lines
+       99      raw = {"status": "ok", "some_field": "value"}
+      100      result = filter_output("some_future_tool", raw, tracer=Non
+           e)
+      101      assert result == {"status": "ok", "some_field": "value"}
+      102 +                                                              
+      103 +                                                              
+      104 +def test_tracer_span_is_appended():                           
+      105 +    tracer = Tracer()                                         
+      106 +    raw = {"employee_id": "alice", "name": "Alice Smith"}     
+      107 +    filter_output("lookup_employee", raw, tracer=tracer)      
+      108 +    assert len(tracer.spans) == 1                             
+      109 +    assert tracer.spans[0].name == "output_filter"            
+
+⏺ Bash(python3 -m pytest
+      tests/test_output_filter.py::test_tracer_span_is_appended -q 2>&1)
+  ⎿  Error: Exit code 1
+     F                                                                        
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     _________________________ test_tracer_span_is_appended 
+     _________________________
+
+         def test_tracer_span_is_appended():
+             tracer = Tracer()
+             raw = {"employee_id": "alice", "name": "Alice Smith"}
+             filter_output("lookup_employee", raw, tracer=tracer)
+     >       assert len(tracer.spans) == 1
+     … +8 lines (ctrl+o to expand)
+
+⏺ RED. Now implement tracer span appending:
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Write(src/pipeline/output_filter.py)
+  ⎿  Added 15 lines
+      1  """Output Filter: strips PII and formats tool output before it r
+         eaches the Reasoner or user."""
+      2  
+      3 +import time                                                     
+      4 +                                                                
+      5 +from src.models.trace import PipelineSpan                       
+      6 +                                                                
+      7  # Fields stripped per §2.2 (personal contact info).
+      8  _LOOKUP_EMPLOYEE_STRIP = {"personal_email", "personal_phone", "h
+         ome_address"}
+      9  # Fields stripped per §4.2 (compensation, performance, disciplin
+         ary records).
+     ...
+      21      Returns:
+      22          Filtered output dict with PII fields removed per policy
+           §2.2, §4.2, §9.x.
+      23      """
+      24 +    start = time.monotonic()                                   
+      25 +                                                               
+      26      if tool_name == "lookup_employee":
+      27          for field in _LOOKUP_EMPLOYEE_STRIP:
+      28              raw_output.pop(field, None)
+     ...
+      32          for record in raw_output.get("results", []):
+      33              for field in _HR_SENSITIVE_STRIP:
+      34                  record.pop(field, None)
+      35 +                                                               
+      36 +    if tracer is not None:                                     
+      37 +        tracer.append_span(PipelineSpan(                       
+      38 +            name="output_filter",                              
+      39 +            inputs={"tool_name": tool_name},                   
+      40 +            outputs={"filtered_output": raw_output},           
+      41 +            latency_ms=(time.monotonic() - start) * 1000,      
+      42 +        ))                                                     
+      43 +                                                               
+      44      return raw_output
+
+⏺ Bash(python3 -m pytest tests/test_output_filter.py -q 2>&1)
+  ⎿  .........
+        [100%]
+     9 passed in 0.04s
+
+⏺ GREEN. ---
+
+  Cycle 10 — RED: Tracer span does not contain raw PII (trace sanitization)
+
+  The span's inputs should not include the raw output (which could contain PII),
+   and the outputs should contain only the already-filtered result.
+
+⏺ Update(tests/test_output_filter.py)
+  ⎿  Added 19 lines
+      107      filter_output("lookup_employee", raw, tracer=tracer)
+      108      assert len(tracer.spans) == 1
+      109      assert tracer.spans[0].name == "output_filter"
+      110 +                                                              
+      111 +                                                              
+      112 +def test_tracer_span_does_not_contain_raw_pii():              
+      113 +    tracer = Tracer()                                         
+      114 +    raw = {                                                   
+      115 +        "employee_id": "alice",                               
+      116 +        "name": "Alice Smith",                                
+      117 +        "personal_email": "alice@gmail.com",                  
+      118 +        "home_address": "123 Main St",                        
+      119 +    }                                                         
+      120 +    filter_output("lookup_employee", raw, tracer=tracer)      
+      121 +    span = tracer.spans[0]                                    
+      122 +    # inputs must not carry the raw PII fields                
+      123 +    assert "personal_email" not in span.inputs                
+      124 +    assert "home_address" not in span.inputs                  
+      125 +    # outputs carry only the filtered result — PII fields abse
+          +nt                                                            
+      126 +    filtered = span.outputs["filtered_output"]                
+      127 +    assert "personal_email" not in filtered                   
+      128 +    assert "home_address" not in filtered                     
+
+⏺ Bash(python3 -m pytest
+      tests/test_output_filter.py::test_tracer_span_does_not_contain_raw_pii -q
+      2>&1)
+  ⎿  .
+        [100%]
+     1 passed in 0.04s
+
+⏺ Green immediately — the span was already built correctly: inputs only stores
+  tool_name (never raw output), and outputs stores the already-filtered dict
+  because we append the span after stripping. The test still documents the
+  invariant.
+
+  Let me run the full test suite to verify no regressions:
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1)  ⎿  ........................................................
+        [100%]
+     56 passed in 2.40s
+
+⏺ All 56 tests pass (46 existing + 10 new). Let's do a final review of the
+  produced files:
+
+  Read 2 files (ctrl+o to expand)
+
+⏺ Slice 7 is done. Here's what was built across 10 TDD cycles:
+
+  Implementation (src/pipeline/output_filter.py):
+  - lookup_employee strips personal_email, personal_phone, home_address per §2.2
+  - reset_password strips temporary_password per §1.3.a (credentials out of
+  traces)
+  - query_hr_database strips compensation, performance_rating,
+  disciplinary_notes from each result record per §4.2
+  - Unknown tools pass through unchanged
+  - Appends a PipelineSpan to the tracer (if provided), with only tool_name in
+  inputs — raw PII never enters the trace
+
+  Tests (tests/test_output_filter.py): 10 tests covering all behaviors above, 56
+   total passing.
+
+✻ Sautéed for 4m 48s
