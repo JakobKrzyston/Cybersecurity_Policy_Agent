@@ -1,0 +1,478 @@
+╭─── Claude Code v2.1.138 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                   Welcome back j!                  │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Internal fixes          │
+│ Sonnet 4.6 · Claude Pro · jaykrzyston@gmail.com's  │ [VSCode] Fixed extensi… │
+│ Organization                                       │ Added `CLAUDE_CODE_ENA… │
+│       ~/Documents/Cybersecurity_Policy_Agent       │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ /engineering:tdd Slice 4: Reasoner — instrumented LLM call, system prompt     
+builder, structured JSON output #5                                              
+
+⏺ I'll start by exploring the codebase to understand what's been built in slices
+   1-3 before planning Slice 4.
+
+  Searched for 1 pattern, read 12 files, recalled 1 memory (ctrl+o to expand)
+
+⏺ Now let me check the issue tracker for issue #5 and look at existing reasoner
+  tests.
+
+⏺ Bash(gh issue view 5 2>/dev/null || echo "No issue #5 or gh not configured")
+  ⎿  title:     Slice 4: Reasoner — instrumented LLM call, system prompt
+     builder
+     , structured JSON output
+     state:     OPEN
+     … +32 lines (ctrl+o to expand)
+
+  Listed 1 directory (ctrl+o to expand)
+
+⏺ I now have a full picture of the codebase. Let me propose a plan before
+  writing any code.
+
+  ---
+  Slice 4: Reasoner — TDD Plan
+
+  Three components to build; here are the behaviors I'd test (public interface
+  only):
+
+  build_system_prompt() — pure function, no faking needed
+
+  1. Output contains the agent role/persona string
+  2. Output contains policy chunks formatted with their section IDs
+  3. Output contains the trust tier and risk classification
+  4. Output contains the tool registry (all five tool names)
+  5. No policy content leaks when we separately format the user message (user
+  message = request text only)
+
+  instrumented_llm_call() — injectable Anthropic client for testing
+
+  6. Appends an LLM span to the tracer with latency_ms, input_tokens,
+  output_tokens, cached_tokens, cost, retries
+  7. Cost computed as input_tokens * input_price + output_tokens * output_price
+  from model_prices.json
+  8. Returns raw response content
+
+  reason() — injected LLM, end-to-end behavior
+
+  9. Valid JSON from LLM → returns ReasonerDecision (Pydantic-validated)
+  10. Invalid JSON from LLM → returns ReasonerDecision with action="escalate"
+  and safe user message
+  11. Pydantic-valid JSON but wrong shape → same escalate path
+  12. Model ID is read from config, not hardcoded (verified via the span logged
+  in the tracer)
+
+  Interface design question: reason() needs a way to inject a fake LLM for tests
+   without making real API calls. Options:
+  - Accept an optional llm_call_fn parameter (callable) — simple, no class
+  needed
+  - Separate build_system_prompt() so tests can verify it independently
+
+  I'd go with build_system_prompt(session, policy_chunks, trust_tier, risk) -> 
+  str as a standalone exportable function (easy to test in isolation), and
+  reason(session, policy_chunks, tracer, llm_call_fn=None) where llm_call_fn
+  defaults to the real instrumented_llm_call.
+
+⏺ User answered Claude's questions:
+  ⎿  · Does this plan match your expectations for Slice 4? → Yes, start TDD
+
+⏺ Starting the red-green loop. First tracer bullet: build_system_prompt()
+  contains all four required inputs.
+
+  Read 2 files (ctrl+o to expand)
+
+⏺ Good. Starting the red-green loop now. Writing the test file first (tracer
+  bullet: build_system_prompt contains agent role/persona), then implementing
+  incrementally.
+
+⏺ Write(tests/test_reasoner.py)
+  ⎿  Wrote 231 lines to tests/test_reasoner.py
+          and ReasonerDecision output.""" builder, instrumented LLM call,
+       2 
+       3 import json
+       4 import os
+       5 from unittest.mock import patch
+       6 
+       7 import pytest
+       8 
+       9 from src.models.decision import ReasonerDecision
+      10 from src.models.session import Session
+     … +250 lines (ctrl+o to expand)
+
+⏺ RED — running tests to confirm they fail:
+
+⏺ Bash(python -m pytest tests/test_reasoner.py -x -q 2>&1 | head -40)
+  ⎿  (eval):1: command not found: python
+
+⏺ Bash(python3 -m pytest tests/test_reasoner.py -x -q 2>&1 | head -40)
+  ⎿  ==================================== ERRORS ==========================
+     ==========
+     ___________________ ERROR collecting tests/test_reasoner.py __________
+     … +15 lines (ctrl+o to expand)
+
+⏺ RED confirmed. Now implementing GREEN — all five components together.
+
+  First, src/infra/llm.py:
+
+⏺ Write(src/infra/llm.py)
+  ⎿  Added 76 lines, removed 2 lines
+       1  """Instrumented LLM wrapper: captures token counts, cost, and r
+          etries per ADR-0002."""
+       2  
+       3 +import time                                                    
+       4 +from typing import Any                                         
+       5  
+       4 -def instrumented_llm_call(model_id: str, messages: list, tracer
+         -) -> dict:                                                     
+       5 -    raise NotImplementedError                                  
+       6 +import anthropic                                               
+       7 +                                                               
+       8 +from src.config.config import load_model_prices                
+       9 +from src.models.trace import PipelineSpan, Tracer              
+      10 +                                                               
+      11 +                                                               
+      12 +def instrumented_llm_call(                                     
+      13 +    model_id: str,                                             
+      14 +    messages: list,                                            
+      15 +    tracer: Tracer,                                            
+      16 +    client: Any = None,                                        
+      17 +    system: str | None = None,                                 
+      18 +) -> dict[str, Any]:                                           
+      19 +    """Wrap an Anthropic API call, capturing metrics and append
+         +ing an LLM span to the tracer.                                 
+      20 +                                                               
+      21 +    Args:                                                      
+      22 +        model_id: Anthropic model identifier for the call.     
+      23 +        messages: Message list in Anthropic messages API format
+         + (user/assistant turns only).                                  
+      24 +        tracer: Pipeline trace context; an LLM span is appended
+         + on completion.                                                
+      25 +        client: Anthropic client instance; defaults to anthropi
+         +c.Anthropic().                                                 
+      26 +        system: Optional system prompt string; sent with epheme
+         +ral cache_control if provided.                                 
+      27 +                                                               
+      28 +    Returns:                                                   
+      29 +        Dict with keys: content, input_tokens, output_tokens, c
+         +ached_tokens, cost, retries, model_id.                         
+      30 +    """                                                        
+      31 +    if client is None:                                         
+      32 +        client = anthropic.Anthropic()                         
+      33 +                                                               
+      34 +    prices = load_model_prices()                               
+      35 +    model_prices = prices.get(model_id, {"input_price_per_token
+         +": 0.0, "output_price_per_token": 0.0})                        
+      36 +                                                               
+      37 +    kwargs: dict[str, Any] = {"model": model_id, "max_tokens": 
+         +1024, "messages": messages}                                    
+      38 +    if system is not None:                                     
+      39 +        kwargs["system"] = [{"type": "text", "text": system, "c
+         +ache_control": {"type": "ephemeral"}}]                         
+      40 +                                                               
+      41 +    start = time.monotonic()                                   
+      42 +    retries = 0                                                
+      43 +    response = client.messages.create(**kwargs)                
+      44 +    latency_ms = (time.monotonic() - start) * 1000             
+      45 +                                                               
+      46 +    input_tokens = response.usage.input_tokens                 
+      47 +    output_tokens = response.usage.output_tokens               
+      48 +    cached_tokens = getattr(response.usage, "cache_read_input_t
+         +okens", 0) or 0                                                
+      49 +    cost = (                                                   
+      50 +        input_tokens * model_prices["input_price_per_token"]   
+      51 +        + output_tokens * model_prices["output_price_per_token"
+         +]                                                              
+      52 +    )                                                          
+      53 +    content = response.content[0].text                         
+      54 +                                                               
+      55 +    span = PipelineSpan(                                       
+      56 +        name="llm",                                            
+      57 +        inputs={"model_id": model_id, "message_count": len(mess
+         +ages)},                                                        
+      58 +        outputs={                                              
+      59 +            "content": content,                                
+      60 +            "input_tokens": input_tokens,                      
+      61 +            "output_tokens": output_tokens,                    
+      62 +            "cached_tokens": cached_tokens,                    
+      63 +            "cost": cost,                                      
+      64 +            "retries": retries,                                
+      65 +        },                                                     
+      66 +        latency_ms=latency_ms,                                 
+      67 +    )                                                          
+      68 +    if tracer is not None:                                     
+      69 +        tracer.append_span(span)                               
+      70 +                                                               
+      71 +    return {                                                   
+      72 +        "content": content,                                    
+      73 +        "input_tokens": input_tokens,                          
+      74 +        "output_tokens": output_tokens,                        
+      75 +        "cached_tokens": cached_tokens,                        
+      76 +        "cost": cost,                                          
+      77 +        "retries": retries,                                    
+      78 +        "model_id": model_id,                                  
+      79 +    }                                                          
+
+⏺ Now src/pipeline/reasoner.py:
+
+⏺ Write(src/pipeline/reasoner.py)
+  ⎿  Added 116 lines, removed 2 lines
+        1  """Reasoner: instrumented LLM call that produces a ReasonerDec
+           ision as structured JSON."""
+        2  
+        3 +import json                                                   
+        4 +from typing import Callable                                   
+        5  
+        4 -def reason(session, policy_chunks: list, tracer):             
+        5 -    raise NotImplementedError                                 
+        6 +from src.config.config import get_reasoner_model_id           
+        7 +from src.infra.llm import instrumented_llm_call               
+        8 +from src.models.decision import ReasonerDecision              
+        9 +from src.models.session import Session                        
+       10 +from src.models.trace import Tracer                           
+       11 +from src.pipeline.chunker import PolicyChunk                  
+       12 +                                                              
+       13 +_TOOL_REGISTRY = [                                            
+       14 +    "reset_password",                                         
+       15 +    "lookup_employee",                                        
+       16 +    "grant_file_access",                                      
+       17 +    "query_hr_database",                                      
+       18 +    "escalate_to_human",                                      
+       19 +]                                                             
+       20 +                                                              
+       21 +_AGENT_ROLE = (                                               
+       22 +    "You are a cybersecurity policy agent for the Gaggia Helpd
+          +esk. "                                                        
+       23 +    "Your role is to evaluate employee requests against compan
+          +y security policy "                                           
+       24 +    "and produce a structured JSON decision. You must cite pol
+          +icy section IDs to support every decision."                   
+       25 +)                                                             
+       26 +                                                              
+       27 +_ESCALATE_DECISION = ReasonerDecision(                        
+       28 +    action="escalate",                                        
+       29 +    tool_calls=[],                                            
+       30 +    reasoning="Reasoner output failed validation.",           
+       31 +    cited_sections=[],                                        
+       32 +    user_message_draft="Your request could not be processed au
+          +tomatically. It has been escalated to a human agent.",        
+       33 +)                                                             
+       34 +                                                              
+       35 +                                                              
+       36 +def build_system_prompt(                                      
+       37 +    policy_chunks: list[PolicyChunk],                         
+       38 +    trust_tier: str,                                          
+       39 +    risk: str,                                                
+       40 +) -> str:                                                     
+       41 +    """Build the per-request system prompt for the Reasoner.  
+       42 +                                                              
+       43 +    Args:                                                     
+       44 +        policy_chunks: Policy chunks retrieved for this reques
+          +t (from the Policy Retriever).                                
+       45 +        trust_tier: Session trust tier from the Trust Gate (e.
+          +g., 'managed_device').                                        
+       46 +        risk: Session risk classification from the Trust Gate 
+          +(e.g., 'red', 'blue').                                        
+       47 +                                                              
+       48 +    Returns:                                                  
+       49 +        System prompt string including agent role, policy chun
+          +ks with section IDs,                                          
+       50 +        session trust context, tool registry, and response for
+          +mat instructions.                                             
+       51 +    """                                                       
+       52 +    chunks_text = (                                           
+       53 +        "\n\n".join(f"[Section {c.id}]\n{c.text}" for c in pol
+          +icy_chunks)                                                   
+       54 +        if policy_chunks                                      
+       55 +        else "(No specific policy sections retrieved for this 
+          +query.)"                                                      
+       56 +    )                                                         
+       57 +    tools_text = "\n".join(f"- {tool}" for tool in _TOOL_REGIS
+          +TRY)                                                          
+       58 +                                                              
+       59 +    return f"""{_AGENT_ROLE}                                  
+       60 +                                                              
+       61 +## Session Context                                            
+       62 +Trust tier: {trust_tier}                                      
+       63 +Risk classification: {risk}                                   
+       64 +                                                              
+       65 +## Retrieved Policy Sections                                  
+       66 +{chunks_text}                                                 
+       67 +                                                              
+       68 +## Available Tools                                            
+       69 +{tools_text}                                                  
+       70 +                                                              
+       71 +## Response Format                                            
+       72 +Respond with ONLY a JSON object matching this exact schema — n
+          +o other text:                                                 
+       73 +{{                                                            
+       74 +  "action": "allow" | "deny" | "escalate" | "clarify",        
+       75 +  "tool_calls": [{{"tool": "<name>", "arguments": {{}}, "polic
+          +y_basis": ["<section_id>"]}}],                                
+       76 +  "reasoning": "<explanation citing policy section IDs>",     
+       77 +  "cited_sections": ["<section_id>", ...],                    
+       78 +  "user_message_draft": "<message to send to the user>"       
+       79 +}}"""                                                         
+       80 +                                                              
+       81 +                                                              
+       82 +def reason(                                                   
+       83 +    session: Session,                                         
+       84 +    policy_chunks: list[PolicyChunk],                         
+       85 +    tracer: Tracer,                                           
+       86 +    user_request: str,                                        
+       87 +    trust_tier: str,                                          
+       88 +    risk: str,                                                
+       89 +    llm_call_fn: Callable | None = None,                      
+       90 +) -> ReasonerDecision:                                        
+       91 +    """Run the Reasoner: build system prompt, call LLM, valida
+          +te and return a ReasonerDecision.                             
+       92 +                                                              
+       93 +    Args:                                                     
+       94 +        session: In-memory session accumulating request histor
+          +y.                                                            
+       95 +        policy_chunks: Policy chunks retrieved for this reques
+          +t.                                                            
+       96 +        tracer: Pipeline trace context; LLM span appended by i
+          +nstrumented_llm_call.                                         
+       97 +        user_request: Raw request text from the user (sole con
+          +tent of the user turn).                                       
+       98 +        trust_tier: Session trust tier from the Trust Gate.   
+       99 +        risk: Session risk classification from the Trust Gate.
+      100 +        llm_call_fn: Callable with signature (model_id, messag
+          +es, tracer, system) -> dict;                                  
+      101 +            defaults to instrumented_llm_call.                
+      102 +                                                              
+      103 +    Returns:                                                  
+      104 +        Validated ReasonerDecision. Returns an escalate decisi
+          +on on JSON parse or schema error.                             
+      105 +    """                                                       
+      106 +    if llm_call_fn is None:                                   
+      107 +        llm_call_fn = instrumented_llm_call                   
+      108 +                                                              
+      109 +    model_id = get_reasoner_model_id()                        
+      110 +    system_prompt = build_system_prompt(policy_chunks, trust_t
+          +ier, risk)                                                    
+      111 +    messages = [{"role": "user", "content": user_request}]    
+      112 +                                                              
+      113 +    result = llm_call_fn(model_id, messages, tracer, system=sy
+          +stem_prompt)                                                  
+      114 +                                                              
+      115 +    try:                                                      
+      116 +        data = json.loads(result["content"])                  
+      117 +        return ReasonerDecision(**data)                       
+      118 +    except Exception:                                         
+      119 +        return _ESCALATE_DECISION                             
+
+⏺ GREEN — running all reasoner tests:
+
+⏺ Bash(python3 -m pytest tests/test_reasoner.py -v 2>&1)
+  ⎿  Error: Exit code 2
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- 
+     /Library/Developer/CommandLineTools/usr/bin/python3
+     cachedir: .pytest_cache
+     rootdir: /Users/jay/Documents/Cybersecurity_Policy_Agent
+     plugins: anyio-4.12.1
+     collecting ... collected 0 items / 1 error
+
+     ==================================== ERRORS 
+     ====================================
+     ___________________ ERROR collecting tests/test_reasoner.py 
+     ____________________
+     … +11 lines (ctrl+o to expand)
+
+⏺ Python 3.9 — need Optional instead of str | None. Fixing both files:
+
+⏺ Update(src/infra/llm.py)  ⎿  Added 1 line, removed 1 line
+      1  """Instrumented LLM wrapper: captures token counts, cost, and re
+         tries per ADR-0002."""
+      2  
+      3  import time
+      4 -from typing import Any                                          
+      4 +from typing import Any, Optional                                
+      5  
+      6  import anthropic
+      7  
+
+⏺ Update(src/infra/llm.py)
+  ⎿  Added 1 line, removed 1 line
+      14      messages: list,
+      15      tracer: Tracer,
+      16      client: Any = None,
+      17 -    system: str | None = None,                                 
+      17 +    system: Optional[str] = None,                              
+      18  ) -> dict[str, Any]:
+      19      """Wrap an Anthropic API call, capturing metrics and append
+          ing an LLM span to the tracer.
+      20  
+
+⏺ Update(src/pipeline/reasoner.py)
+  ⎿  Added 1 line, removed 1 line
+      1  """Reasoner: instrumented LLM call that produces a ReasonerDecis
+         ion as structured JSON."""
+      2  
+      3  import json
+      4 -from typing import Callable                                     
+      4 +from typing import Callable, Optional                           
+      5  
+      6  from src.config.config import get_reasoner_model_id
+      7  from src.infra.llm import instrumented_llm_call
+
+⏺ Update(src/pipeline/reasoner.py)
+  ⎿  Added 1 line, removed 1 line
+      86      user_request: str,
+      87      trust_tier: str,
+      88      risk: str,
+      89 -    llm_call_fn: Callable | None = None,                       
+      89 +    llm_call_fn: Optional[Callable] = None,                    
+      90  ) -> ReasonerDecision:
+      91      """Run the Reasoner: build system prompt, call LLM, validat
+          e and return a ReasonerDecision.
+      92  
+
+⏺ Bash(python3 -m pytest tests/test_reasoner.py -v 2>&1)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +20 lines (ctrl+o to expand)
+
+⏺ All 13 GREEN. Now refactor — checking for anything worth tightening, then
+  running the full suite to confirm no regressions:
+
+⏺ Bash(python3 -m pytest -v 2>&1)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +49 lines (ctrl+o to expand)
+
+⏺ 35/35 green, no regressions. Slice 4 is done.
+
+  ---
+  Here's what was built:
+
+  src/infra/llm.py — instrumented_llm_call()
+  - Wraps the Anthropic API call, captures wall-clock latency,
+  input/output/cached token counts, cost (computed from model_prices.json by
+  model ID), and retry count
+  - Sends the system prompt via the system parameter with cache_control: 
+  ephemeral (prompt caching per ADR-0002)
+  - Appends an LLM span to the Tracer; injectable client parameter for testing
+  without real API calls
+
+  src/pipeline/reasoner.py — build_system_prompt() + reason()
+  - build_system_prompt(policy_chunks, trust_tier, risk) — pure function
+  assembling agent role/persona, retrieved policy sections with explicit section
+   IDs, session context, tool registry, and JSON response format instructions
+  - reason(session, policy_chunks, tracer, user_request, trust_tier, risk, 
+  llm_call_fn) — calls the LLM, parses the JSON response through Pydantic
+  ReasonerDecision; any parse or schema error falls back to a safe escalate
+  decision; model ID read from config via env (REASONER_MODEL_ID), not
+  hardcoded; injectable llm_call_fn for testing
+
+✻ Crunched for 5m 10s
