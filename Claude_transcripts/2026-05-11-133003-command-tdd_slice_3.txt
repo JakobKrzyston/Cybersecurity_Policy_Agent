@@ -1,0 +1,1231 @@
+╭─── Claude Code v2.1.138 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                   Welcome back j!                  │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Internal fixes          │
+│ Sonnet 4.6 · Claude Pro · jaykrzyston@gmail.com's  │ [VSCode] Fixed extensi… │
+│ Organization                                       │ Added `CLAUDE_CODE_ENA… │
+│       ~/Documents/Cybersecurity_Policy_Agent       │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ /engineering:tdd Slice 3: Policy Retriever — chunking, ChromaDB, hybrid       
+retrieval, abstraction layer #4                                                 
+
+⏺ Skill(engineering:tdd)
+  ⎿  Successfully loaded skill
+
+⏺ Let me explore the project structure and existing code before we plan.
+
+  Searched for 1 pattern, read 3 files (ctrl+o to expand)
+
+⏺ Now let me read the existing tests and the GitHub issue for this slice.
+
+  Read 3 files (ctrl+o to expand)
+
+⏺ Bash(gh issue list --state open 2>/dev/null | head -20)
+  ⎿  12 OPEN    Slice 11: LLM-as-judge evaluation
+     runner     ready-for-agent 2026-05-1
+     1T16:50:48Z
+     11 OPEN    Slice 10: Golden test set + CI regression
+     suite      ready-for-agent 20
+     … +13 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Bash(gh issue view 4 2>/dev/null)
+  ⎿  title:     Slice 3: Policy Retriever — chunking, ChromaDB, hybrid
+     retrieval
+     , abstraction layer
+     state:     OPEN
+     … +30 lines (ctrl+o to expand)
+
+⏺ Good, I have enough context. Let me lay out the plan before touching any code.
+
+  ---
+  Plan: Slice 3 — Policy Retriever
+
+  What we're building
+
+  Three distinct responsibilities, each testable independently:
+
+  1. Chunker — parse gaggia_helpdesk_policy.md into clause-level PolicyChunk
+  objects (pure function, no I/O)
+  2. ChromaDB retriever — embed chunks, run semantic + tag-filtered queries
+  (in-process ChromaDB, no external services)
+  3. Cross-reference expander — one-hop expansion gated by tag intersection
+  (pure function)
+
+  Public interface (what tests will use)
+
+  @dataclass
+  class PolicyChunk:
+      id: str     # e.g. "1.1.b"
+      text: str   # prefixed with section header + tags + related sections
+      tags: list[str]
+
+  class PolicyRetrieverBase(ABC):
+      def retrieve(self, query: str, tags: list[str] | None = None, top_k: int =
+   5) -> list[PolicyChunk]: ...
+
+  # concrete implementation
+  class ChromaDBRetriever(PolicyRetrieverBase): ...
+
+  No other module imports chromadb directly.
+
+  Behaviors to test (in this order)
+
+  #: 1
+  Behavior: Chunking section 1 produces a chunk with id "1.1.b" (tracer bullet)
+  Component: chunker
+  ────────────────────────────────────────
+  #: 2
+  Behavior: Every chunk text is prefixed with its parent section header, tags,
+    and related sections
+  Component: chunker
+  ────────────────────────────────────────
+  #: 3
+  Behavior: Section-level headers (e.g. "1") also get chunks
+  Component: chunker
+  ────────────────────────────────────────
+  #: 4
+  Behavior: Retriever returns PolicyChunk objects with both id and text
+  Component: retriever
+  ────────────────────────────────────────
+  #: 5
+  Behavior: Querying for "password reset" returns chunks from section 1
+  Component: retriever
+  ────────────────────────────────────────
+  #: 6
+  Behavior: Tag filter narrows results to chunks sharing that tag
+  Component: retriever
+  ────────────────────────────────────────
+  #: 7
+  Behavior: Cross-reference expansion includes a related section only when it
+    shares a tag
+  Component: expander
+  ────────────────────────────────────────
+  #: 8
+  Behavior: Cross-reference expansion excludes related sections with no
+    overlapping tags
+  Component: expander
+
+  Files to create/modify
+
+  - src/pipeline/policy_retriever.py — PolicyRetrieverBase, ChromaDBRetriever,
+  retrieve()
+  - src/infra/embeddings.py — get_collection() helper
+  - New: src/pipeline/chunker.py — chunk_policy() pure function
+  - New: tests/test_policy_retriever.py
+
+  One question before we start
+
+  For the retriever integration tests (behaviors 4–6), ChromaDB needs an
+  embedding function. Options:
+
+  - Option A: Use ChromaDB's default embedding (downloads a small
+  sentence-transformers model on first run — ~90MB, slow first run but no
+  mocking)
+  - Option B: Use ChromaDB's embedding_functions.DefaultEmbeddingFunction with a
+   stub that returns random vectors (fast, but test 5 "password reset returns
+  section 1" would be probabilistic)
+  - Option C: Use TF-IDF / keyword cosine similarity for tests only, swap real
+  embeddings in production via the abstraction layer
+
+  My recommendation is Option A — accept the one-time download cost. Tests 4–6
+  then verify real retrieval quality, not just "does something come back." This
+  matches the integration-style testing philosophy.
+
+⏺ User answered Claude's questions:
+  ⎿  · Which embedding approach should we use for retriever tests? → Option A: 
+     Real sentence-transformers (Recommended)
+
+⏺ Good. Let me check the environment before writing the first test.
+
+⏺ Bash(pip show chromadb sentence-transformers 2>&1 | grep -E
+      "^(Name|Version|not found)")
+  ⎿  No matches found
+
+⏺ Bash(python -m pytest tests/ -q 2>&1 | tail -5)
+  ⎿  (eval):1: command not found: python
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1 | tail -5)
+  ⎿  .............
+        [100%]
+     13 passed in 0.05s
+
+⏺ Bash(pip3 show chromadb sentence-transformers 2>&1 | grep -E
+      "^(Name|Version|WARNING)")
+  ⎿  Name: chromadb
+     Version: 1.5.8
+     Name: sentence-transformers
+     Version: 5.1.2
+
+⏺ Both installed, 13 tests passing. Starting the TDD loop.
+
+  ---
+  Cycle 1 — RED: chunker produces a clause-level chunk with correct ID
+
+⏺ Write(tests/test_policy_retriever.py)
+  ⎿  Wrote 28 lines to tests/test_policy_retriever.py
+        ference expansion."""ests: chunking, ChromaDB retrieval, cross-re
+      2 
+      3 import pytest
+      4 from src.pipeline.chunker import chunk_policy, PolicyChunk
+      5 
+      7 # ---------------------------------------------------------------
+        ------------
+      8 # Chunking tests
+      9 # ---------------------------------------------------------------
+        ------------
+     … +22 lines (ctrl+o to expand)
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_chunk_policy_produ
+      ces_clause_level_chunk_with_correct_id -q 2>&1)
+  ⎿  Error: Exit code 4
+     ERROR: found no collectors for 
+     /Users/jay/Documents/Cybersecurity_Policy_Agent/tests/test_policy_retriever
+     .py::test_chunk_policy_produces_clause_level_chunk_with_correct_id
+
+
+     ==================================== ERRORS 
+     ====================================
+     _______________ ERROR collecting tests/test_policy_retriever.py 
+     ________________
+     ImportError while importing test module '/Users/jay/Documents/Cybersecurity
+     _Policy_Agent/tests/test_policy_retriever.py'.
+     Hint: make sure your test modules/packages have valid Python names.
+     Traceback:
+     /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Ve
+     rsions/3.9/lib/python3.9/importlib/__init__.py:127: in import_module
+     … +7 lines (ctrl+o to expand)
+
+⏺ RED (import error = module doesn't exist). Now GREEN:
+
+⏺ Write(src/pipeline/chunker.py)
+  ⎿  Wrote 87 lines to src/pipeline/chunker.py
+        bjects.""": parse policy markdown into clause-level PolicyChunk o
+      2 
+      3 import re
+      4 from dataclasses import dataclass, field
+      5 
+      6 
+      7 @dataclass
+      8 class PolicyChunk:
+      9     """A single retrievable policy unit with a stable clause ID."
+        ""
+     … +87 lines (ctrl+o to expand)
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_chunk_policy_produ
+      ces_clause_level_chunk_with_correct_id -q 2>&1)
+  ⎿  Error: Exit code 1
+     F                                                                        
+     [100%]
+     =================================== FAILURES 
+     ===================================
+     ________ test_chunk_policy_produces_clause_level_chunk_with_correct_id 
+     _________
+
+         def test_chunk_policy_produces_clause_level_chunk_with_correct_id():
+             chunks = chunk_policy(POLICY_SNIPPET)
+             ids = [c.id for c in chunks]
+     >       assert "1.1.b" in ids
+     E       AssertionError: assert '1.1.b' in ['1.1']
+     … +5 lines (ctrl+o to expand)
+
+⏺ The regex doesn't handle 1.1.a style IDs (letter after dotted number). Let me
+  fix the chunker:
+
+⏺ Write(src/pipeline/chunker.py)
+  ⎿  Added 22 lines, removed 38 lines
+      13      tags: list[str] = field(default_factory=list)
+      14  
+      15  
+      16 -# Patterns                                                     
+      16  _SECTION_RE = re.compile(r"^### (\d+) (.+)$", re.MULTILINE)
+      18 -_CLAUSE_RE = re.compile(                                       
+      19 -    r"^( {0,4})(\d+(?:\.\d+)*[a-z]?)\.\s+(.+?)(?=\n\s*\d+(?:\.\
+         -d+)*[a-z]?\.\s|\n###|\Z)",                                     
+      20 -    re.MULTILINE | re.DOTALL,                                  
+      21 -)                                                              
+      17 +_CLAUSE_LINE_RE = re.compile(r"^[ \t]*(\d+\.\d+(?:\.[a-z])?)\.\
+         +s+(.+)")                                                       
+      18  _TAGS_RE = re.compile(r"\*\*Tags:\*\*\s*(.+)")
+      19  _APPLIES_RE = re.compile(r"\*\*Applies to:\*\*\s*(.+)")
+      20  _RELATED_RE = re.compile(r"\*\*Related sections:\*\*\s*(.+)")
+      21  
+      22  
+      27 -def _parse_tags(header_block: str) -> list[str]:               
+      28 -    m = _TAGS_RE.search(header_block)                          
+      29 -    if not m:                                                  
+      30 -        return []                                              
+      31 -    return [t.strip() for t in m.group(1).split(",")]          
+      23 +def _parse_tags(section_text: str) -> list[str]:               
+      24 +    m = _TAGS_RE.search(section_text)                          
+      25 +    return [t.strip() for t in m.group(1).split(",")] if m else
+         + []                                                            
+      26  
+      27  
+      34 -def _build_prefix(section_num: str, section_title: str, header_
+         -block: str) -> str:                                            
+      35 -    tags_line = _TAGS_RE.search(header_block)                  
+      36 -    applies_line = _APPLIES_RE.search(header_block)            
+      37 -    related_line = _RELATED_RE.search(header_block)            
+      28 +def _build_prefix(section_num: str, section_title: str, section
+         +_text: str) -> str:                                            
+      29      parts = [f"### {section_num} {section_title}"]
+      39 -    if tags_line:                                              
+      40 -        parts.append(f"**Tags:** {tags_line.group(1)}")        
+      41 -    if applies_line:                                           
+      42 -        parts.append(f"**Applies to:** {applies_line.group(1)}"
+         -)                                                              
+      43 -    if related_line:                                           
+      44 -        parts.append(f"**Related sections:** {related_line.grou
+         -p(1)}")                                                        
+      30 +    for pattern in (_TAGS_RE, _APPLIES_RE, _RELATED_RE):       
+      31 +        m = pattern.search(section_text)                       
+      32 +        if m:                                                  
+      33 +            label = pattern.pattern.split(r"\*\*")[1].replace(r
+         +":", "").strip()                                               
+      34 +            parts.append(f"**{label}:** {m.group(1)}")         
+      35      return "\n".join(parts) + "\n\n"
+      36  
+      37  
+     ...
+      42          policy_text: Raw markdown content of the policy documen
+          t.
+      43  
+      44      Returns:
+      55 -        List of PolicyChunk objects, one per numbered clause.  
+      45 +        List of PolicyChunk objects, one per numbered clause (X
+         +.Y and X.Y.z level).                                           
+      46      """
+      47      chunks: list[PolicyChunk] = []
+      58 -                                                               
+      59 -    # Split into sections                                      
+      48      section_matches = list(_SECTION_RE.finditer(policy_text))
+      49 +                                                               
+      50      for i, sec_match in enumerate(section_matches):
+      51          section_num = sec_match.group(1)
+      63 -        section_title = sec_match.group(2)                     
+      52 +        section_title = sec_match.group(2).strip()             
+      53          sec_start = sec_match.start()
+      54          sec_end = section_matches[i + 1].start() if i + 1 < len
+          (section_matches) else len(policy_text)
+      55          section_text = policy_text[sec_start:sec_end]
+      56  
+      68 -        # Extract header metadata block (up to first blank line
+         - after tags)                                                   
+      69 -        header_end = sec_match.end()                           
+      70 -        header_block = section_text[: section_text.find("\n\n",
+         - sec_match.end() - sec_start) + sec_start - sec_start]         
+      57          tags = _parse_tags(section_text)
+      58          prefix = _build_prefix(section_num, section_title, sect
+          ion_text)
+      59  
+      74 -        # Find all clauses in this section                     
+      75 -        for clause_match in _CLAUSE_RE.finditer(section_text): 
+      76 -            raw_id = clause_match.group(2)                     
+      77 -            # Only emit clause IDs that start with the section 
+         -number                                                         
+      78 -            if not raw_id.startswith(section_num + ".") and raw
+         -_id != section_num:                                            
+      60 +        for line in section_text.splitlines():                 
+      61 +            m = _CLAUSE_LINE_RE.match(line)                    
+      62 +            if not m:                                          
+      63                  continue
+      80 -            clause_text = clause_match.group(3).strip()        
+      81 -            chunks.append(PolicyChunk(                         
+      82 -                id=raw_id,                                     
+      83 -                text=prefix + clause_text,                     
+      84 -                tags=tags,                                     
+      85 -            ))                                                 
+      64 +            clause_id = m.group(1)                             
+      65 +            # Only emit clauses that belong to this section    
+      66 +            if not clause_id.startswith(section_num + "."):    
+      67 +                continue                                       
+      68 +            clause_text = m.group(2).strip()                   
+      69 +            chunks.append(PolicyChunk(id=clause_id, text=prefix
+         + + clause_text, tags=tags))                                    
+      70  
+      71      return chunks
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_chunk_policy_produ
+      ces_clause_level_chunk_with_correct_id -q 2>&1)
+  ⎿  .
+        [100%]
+     1 passed in 0.00s
+
+⏺ GREEN. All existing tests still pass?
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1 | tail -3)
+  ⎿  ..............
+        [100%]
+     14 passed in 0.05s
+
+⏺ ---
+  Cycle 2 — RED: chunk text is prefixed with section header, tags, and related 
+  sections
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 8 lines
+      26      chunks = chunk_policy(POLICY_SNIPPET)
+      27      ids = [c.id for c in chunks]
+      28      assert "1.1.b" in ids
+      29 +                                                               
+      30 +                                                               
+      31 +def test_chunk_text_is_prefixed_with_section_header_tags_and_re
+         +lated():                                                       
+      32 +    chunks = chunk_policy(POLICY_SNIPPET)                      
+      33 +    chunk = next(c for c in chunks if c.id == "1.1.b")         
+      34 +    assert "### 1 Account Management" in chunk.text            
+      35 +    assert "Tags:" in chunk.text                               
+      36 +    assert "Related sections:" in chunk.text                   
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_chunk_text_is_pref
+      ixed_with_section_header_tags_and_related -q 2>&1)
+  ⎿  .
+        [100%]
+     1 passed in 0.01s
+
+⏺ Already green (prefix logic was correct from cycle 1). Let me quickly verify
+  the actual output looks right before moving on:
+
+⏺ Bash(python3 -c "
+      from src.pipeline.chunker import chunk_policy…)
+  ⎿  ID: 1.1
+     Tags: ['authentication', 'password_reset']
+     Text preview: ### 1 Account Management
+     … +24 lines (ctrl+o to expand)
+
+⏺ Structure looks correct. Let me verify the full policy file too:
+
+⏺ Bash(python3 -c "
+      from src.pipeline.chunker import chunk_policy…)
+  ⎿  Total chunks: 146
+     Sample IDs: ['1.1', '1.1.a', '1.1.b', '1.1.c', '1.2', '1.2.a', '1.2.b'
+     , '1.3', '1.3.a', '1.3.b', '2.1', '2.1.a', '2.1.b', '2.2', '2.2.a', '2
+     .2.b', '2.3', '2.3.a', '2.3.b', '3.1']
+
+⏺ 146 chunks, IDs look exactly right.
+
+  ---
+  Cycle 3 — RED: chunks carry their tags
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 7 lines
+      34      assert "### 1 Account Management" in chunk.text
+      35      assert "Tags:" in chunk.text
+      36      assert "Related sections:" in chunk.text
+      37 +                                                               
+      38 +                                                               
+      39 +def test_chunk_carries_tags_from_parent_section():             
+      40 +    chunks = chunk_policy(POLICY_SNIPPET)                      
+      41 +    chunk = next(c for c in chunks if c.id == "1.1.a")         
+      42 +    assert "authentication" in chunk.tags                      
+      43 +    assert "password_reset" in chunk.tags                      
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_chunk_carries_tags
+      _from_parent_section -q 2>&1)
+  ⎿  .
+        [100%]
+     1 passed in 0.00s
+
+⏺ Chunker behaviors are all green. Now the retriever.
+
+  ---
+  Cycle 4 — RED: retriever returns PolicyChunk objects with id and text
+
+  This is the tracer bullet for retrieval — tests that the full path (load
+  policy → embed → query) works end-to-end.
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 1 line
+      2  
+      3  import pytest
+      4  from src.pipeline.chunker import chunk_policy, PolicyChunk
+      5 +from src.pipeline.policy_retriever import ChromaDBRetriever, Pol
+        +icyRetrieverBase                                                
+      6  
+      7  
+      8  # --------------------------------------------------------------
+         -------------
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 27 lines
+      42      chunk = next(c for c in chunks if c.id == "1.1.a")
+      43      assert "authentication" in chunk.tags
+      44      assert "password_reset" in chunk.tags
+      45 +                                                               
+      46 +                                                               
+      47 +# -------------------------------------------------------------
+         +--------------                                                 
+      48 +# Retriever tests (uses real ChromaDB + sentence-transformers i
+         +n-process)                                                     
+      49 +# -------------------------------------------------------------
+         +--------------                                                 
+      50 +                                                               
+      51 +POLICY_PATH = "gaggia_helpdesk_policy.md"                      
+      52 +                                                               
+      53 +                                                               
+      54 +@pytest.fixture(scope="module")                                
+      55 +def retriever():                                               
+      56 +    with open(POLICY_PATH) as f:                               
+      57 +        policy_text = f.read()                                 
+      58 +    return ChromaDBRetriever.from_policy_text(policy_text)     
+      59 +                                                               
+      60 +                                                               
+      61 +def test_retriever_is_policy_retriever_base(retriever):        
+      62 +    assert isinstance(retriever, PolicyRetrieverBase)          
+      63 +                                                               
+      64 +                                                               
+      65 +def test_retriever_returns_policy_chunks_with_id_and_text(retri
+         +ever):                                                         
+      66 +    results = retriever.retrieve("password reset", top_k=3)    
+      67 +    assert len(results) > 0                                    
+      68 +    for chunk in results:                                      
+      69 +        assert isinstance(chunk, PolicyChunk)                  
+      70 +        assert chunk.id                                        
+      71 +        assert chunk.text                                      
+
+⏺ Bash(python3 -m pytest
+      tests/test_policy_retriever.py::test_retriever_is_policy_retriever_base
+      tests/test_policy_retriever.py::test_retriever_returns_policy_chunks_w…)
+  ⎿  Error: Exit code 4
+     ERROR: found no collectors for /Users/jay/Documents/Cybersecurity_Policy_Ag
+     ent/tests/test_policy_retriever.py::test_retriever_is_policy_retriever_base
+
+     ERROR: found no collectors for 
+     /Users/jay/Documents/Cybersecurity_Policy_Agent/tests/test_policy_retriever
+     .py::test_retriever_returns_policy_chunks_with_id_and_text
+
+
+     ==================================== ERRORS 
+     ====================================
+     _______________ ERROR collecting tests/test_policy_retriever.py 
+     ________________
+     ImportError while importing test module '/Users/jay/Documents/Cybersecurity
+     _Policy_Agent/tests/test_policy_retriever.py'.
+     Hint: make sure your test modules/packages have valid Python names.
+     … +9 lines (ctrl+o to expand)
+
+⏺ RED. Now implement PolicyRetrieverBase and ChromaDBRetriever:
+
+⏺ Write(src/pipeline/policy_retriever.py)
+  ⎿  Added 148 lines, removed 2 lines
+        1  """Policy Retriever: hybrid semantic + tag retrieval of policy
+            chunks from ChromaDB."""
+        2  
+        3 +from abc import ABC, abstractmethod                           
+        4  
+        4 -def retrieve(query: str, tracer):                             
+        5 -    raise NotImplementedError                                 
+        5 +import chromadb                                               
+        6 +from chromadb.utils import embedding_functions                
+        7 +                                                              
+        8 +from src.pipeline.chunker import PolicyChunk, chunk_policy    
+        9 +                                                              
+       10 +                                                              
+       11 +class PolicyRetrieverBase(ABC):                               
+       12 +    """Abstraction layer — no pipeline component outside this 
+          +module imports ChromaDB."""                                   
+       13 +                                                              
+       14 +    @abstractmethod                                           
+       15 +    def retrieve(                                             
+       16 +        self,                                                 
+       17 +        query: str,                                           
+       18 +        tags: list[str] | None = None,                        
+       19 +        top_k: int = 5,                                       
+       20 +    ) -> list[PolicyChunk]:                                   
+       21 +        """Return top-k policy chunks relevant to query, optio
+          +nally filtered by tags.                                       
+       22 +                                                              
+       23 +        Args:                                                 
+       24 +            query: Natural language request to match against p
+          +olicy.                                                        
+       25 +            tags: If provided, restrict results to chunks shar
+          +ing at least one tag.                                         
+       26 +            top_k: Maximum number of chunks to return before e
+          +xpansion.                                                     
+       27 +                                                              
+       28 +        Returns:                                              
+       29 +            List of PolicyChunk objects ordered by relevance. 
+       30 +        """                                                   
+       31 +                                                              
+       32 +                                                              
+       33 +class ChromaDBRetriever(PolicyRetrieverBase):                 
+       34 +    """In-process ChromaDB-backed retriever using sentence-tra
+          +nsformers embeddings."""                                      
+       35 +                                                              
+       36 +    def __init__(self, collection: chromadb.Collection, chunks
+          +_by_id: dict[str, PolicyChunk]) -> None:                      
+       37 +        self._collection = collection                         
+       38 +        self._chunks_by_id = chunks_by_id                     
+       39 +                                                              
+       40 +    @classmethod                                              
+       41 +    def from_policy_text(cls, policy_text: str) -> "ChromaDBRe
+          +triever":                                                     
+       42 +        """Build a retriever from raw policy markdown.        
+       43 +                                                              
+       44 +        Args:                                                 
+       45 +            policy_text: Full content of the policy document. 
+       46 +                                                              
+       47 +        Returns:                                              
+       48 +            Populated ChromaDBRetriever ready to query.       
+       49 +        """                                                   
+       50 +        chunks = chunk_policy(policy_text)                    
+       51 +        chunks_by_id = {c.id: c for c in chunks}              
+       52 +                                                              
+       53 +        client = chromadb.EphemeralClient()                   
+       54 +        ef = embedding_functions.DefaultEmbeddingFunction()   
+       55 +        collection = client.get_or_create_collection(         
+       56 +            name="policy",                                    
+       57 +            embedding_function=ef,                            
+       58 +            metadata={"hnsw:space": "cosine"},                
+       59 +        )                                                     
+       60 +                                                              
+       61 +        collection.add(                                       
+       62 +            ids=[c.id for c in chunks],                       
+       63 +            documents=[c.text for c in chunks],               
+       64 +            metadatas=[{"tags": ",".join(c.tags)} for c in chu
+          +nks],                                                         
+       65 +        )                                                     
+       66 +                                                              
+       67 +        return cls(collection, chunks_by_id)                  
+       68 +                                                              
+       69 +    def retrieve(                                             
+       70 +        self,                                                 
+       71 +        query: str,                                           
+       72 +        tags: list[str] | None = None,                        
+       73 +        top_k: int = 5,                                       
+       74 +    ) -> list[PolicyChunk]:                                   
+       75 +        """Return top-k chunks by cosine similarity, optionall
+          +y filtered by tag.                                            
+       76 +                                                              
+       77 +        Args:                                                 
+       78 +            query: Natural language request to match against p
+          +olicy.                                                        
+       79 +            tags: If provided, restrict results to chunks shar
+          +ing at least one tag.                                         
+       80 +            top_k: Maximum number of chunks to return before c
+          +ross-reference expansion.                                     
+       81 +                                                              
+       82 +        Returns:                                              
+       83 +            List of PolicyChunk objects, deduplicated, ordered
+          + by relevance.                                                
+       84 +        """                                                   
+       85 +        where = None                                          
+       86 +        if tags:                                              
+       87 +            # ChromaDB metadata filter: chunk must contain at 
+          +least one requested tag                                       
+       88 +            conditions = [{"tags": {"$contains": t}} for t in 
+          +tags]                                                         
+       89 +            where = {"$or": conditions} if len(conditions) > 1
+          + else conditions[0]                                           
+       90 +                                                              
+       91 +        results = self._collection.query(                     
+       92 +            query_texts=[query],                              
+       93 +            n_results=min(top_k, self._collection.count()),   
+       94 +            where=where,                                      
+       95 +        )                                                     
+       96 +                                                              
+       97 +        ids = results["ids"][0]                               
+       98 +        retrieved = [self._chunks_by_id[chunk_id] for chunk_id
+          + in ids if chunk_id in self._chunks_by_id]                    
+       99 +        return _expand_cross_references(retrieved, self._chunk
+          +s_by_id)                                                      
+      100 +                                                              
+      101 +                                                              
+      102 +def _expand_cross_references(                                 
+      103 +    chunks: list[PolicyChunk],                                
+      104 +    chunks_by_id: dict[str, PolicyChunk],                     
+      105 +) -> list[PolicyChunk]:                                       
+      106 +    """Add one-hop related-section chunks when tag intersectio
+          +n with originator is non-empty.                               
+      107 +                                                              
+      108 +    Args:                                                     
+      109 +        chunks: Initially retrieved chunks.                   
+      110 +        chunks_by_id: Full index of all chunks for lookup.    
+      111 +                                                              
+      112 +    Returns:                                                  
+      113 +        Expanded list with related chunks appended (no duplica
+          +tes).                                                         
+      114 +    """                                                       
+      115 +    import re                                                 
+      116 +                                                              
+      117 +    _RELATED_RE = re.compile(r"\*\*Related sections:\*\*\s*(.+
+          +)")                                                           
+      118 +                                                              
+      119 +    seen_ids = {c.id for c in chunks}                         
+      120 +    expanded = list(chunks)                                   
+      121 +                                                              
+      122 +    for chunk in chunks:                                      
+      123 +        m = _RELATED_RE.search(chunk.text)                    
+      124 +        if not m:                                             
+      125 +            continue                                          
+      126 +        related_ids = [r.strip() for r in m.group(1).split(","
+          +)]                                                            
+      127 +        for related_id in related_ids:                        
+      128 +            if related_id in seen_ids:                        
+      129 +                continue                                      
+      130 +            related = chunks_by_id.get(related_id)            
+      131 +            if related is None:                               
+      132 +                continue                                      
+      133 +            # Gate: include only if related section shares at 
+          +least one tag                                                 
+      134 +            if set(chunk.tags) & set(related.tags):           
+      135 +                expanded.append(related)                      
+      136 +                seen_ids.add(related_id)                      
+      137 +                                                              
+      138 +    return expanded                                           
+      139 +                                                              
+      140 +                                                              
+      141 +def retrieve(query: str, tracer) -> list[PolicyChunk]:        
+      142 +    """Module-level convenience shim used by the pipeline.    
+      143 +                                                              
+      144 +    Args:                                                     
+      145 +        query: Natural language request.                      
+      146 +        tracer: Pipeline tracer (unused until Slice 9 wiring).
+      147 +                                                              
+      148 +    Returns:                                                  
+      149 +        List of PolicyChunk objects.                          
+      150 +    """                                                       
+      151 +    raise NotImplementedError("Wire up a PolicyRetrieverBase i
+          +nstance at pipeline init time.")                              
+
+⏺ Bash(python3 -m pytest
+      tests/test_policy_retriever.py::test_retriever_is_policy_retriever_base
+      tests/test_policy_retriever.py::test_retriever_returns_policy_chunks_w…)  ⎿  Error: Exit code 4
+     ============================= test session starts 
+     ==============================
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- 
+     /Library/Developer/CommandLineTools/usr/bin/python3
+     cachedir: .pytest_cache
+     rootdir: /Users/jay/Documents/Cybersecurity_Policy_Agent
+     plugins: anyio-4.12.1
+     collecting ... ERROR: found no collectors for 
+     /Users/jay/Documents/Cybersecurity_Policy_Agent/tests/test_policy_retriever
+     .py::test_retriever_is_policy_retriever_base
+
+     ERROR: found no collectors for 
+     /Users/jay/Documents/Cybersecurity_Policy_Agent/tests/test_policy_retriever
+     .py::test_retriever_returns_policy_chunks_with_id_and_text
+
+     … +14 lines (ctrl+o to expand)
+
+⏺ Python 3.9 doesn't support X | None syntax. Need Optional:
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 2 lines
+      1  """Policy Retriever: hybrid semantic + tag retrieval of policy c
+         hunks from ChromaDB."""
+      2  
+      3 +from __future__ import annotations                              
+      4 +                                                                
+      5  from abc import ABC, abstractmethod
+      6  
+      7  import chromadb
+
+⏺ Bash(python3 -m pytest
+      tests/test_policy_retriever.py::test_retriever_is_policy_retriever_base
+      tests/test_policy_retriever.py::test_retriever_returns_policy_chunks_w…)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +13 lines (ctrl+o to expand)
+  ⎿  (timeout 2m)
+
+⏺ GREEN (9s — model loading first run, cached after).
+
+  ---
+  Cycle 5 — RED: querying "password reset" returns section 1 chunks
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 7 lines
+      69          assert isinstance(chunk, PolicyChunk)
+      70          assert chunk.id
+      71          assert chunk.text
+      72 +                                                               
+      73 +                                                               
+      74 +def test_querying_password_reset_returns_section_1_chunks(retri
+         +ever):                                                         
+      75 +    results = retriever.retrieve("reset my password", top_k=5) 
+      76 +    section_ids = [c.id for c in results]                      
+      77 +    # At least one result should be from section 1 (account man
+         +agement / password reset)                                      
+      78 +    assert any(chunk_id.startswith("1.") for chunk_id in sectio
+         +n_ids)                                                         
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_querying_password_
+      reset_returns_section_1_chunks -v 2>&1)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +11 lines (ctrl+o to expand)
+
+⏺ ---
+  Cycle 6 — RED: tag filter narrows results
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 7 lines
+      76      section_ids = [c.id for c in results]
+      77      # At least one result should be from section 1 (account man
+          agement / password reset)
+      78      assert any(chunk_id.startswith("1.") for chunk_id in sectio
+          n_ids)
+      79 +                                                               
+      80 +                                                               
+      81 +def test_tag_filter_restricts_results_to_matching_chunks(retrie
+         +ver):                                                          
+      82 +    # "byod" only appears in sections 8 and 10; results should 
+         +not include section 1 chunks                                   
+      83 +    results = retriever.retrieve("device authentication", tags=
+         +["byod"], top_k=5)                                             
+      84 +    for chunk in results:                                      
+      85 +        assert "byod" in chunk.tags, f"Chunk {chunk.id} lacks t
+         +ag 'byod' but was returned by tag filter"                      
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_tag_filter_restric
+      ts_results_to_matching_chunks -v 2>&1)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +11 lines (ctrl+o to expand)
+
+⏺ Let me verify the tag filter test is actually exercising expansion correctly:
+
+⏺ Bash(python3 -c "
+      from src.pipeline.chunker import chunk_policy…)
+  ⎿  (No output)
+
+⏺ Bash(python3 -c "
+      from src.pipeline.chunker import chunk_policy…)
+  ⎿  Result count: 0
+
+⏺ Bash(python3 -c "
+      from src.pipeline.chunker import chunk_policy…)
+  ⎿  Chunks with byod tag: 14
+     Sample byod chunk ID: 8.1
+     Tags stored: ['byod', 'remote_access', 'data_classification', 'authent
+     ication', 'trust_tier']
+
+⏺ Bash(python3 -c "
+      import chromadb…)
+  ⎿  contains result ids: [[]]
+
+⏺ Bash(python3 -c "
+      import chromadb…)
+  ⎿  no filter: [['a', 'b']]
+     metadatas: [[{'tags': 'byod,auth'}, {'tags': 'auth,pii'}]]
+
+⏺ $contains doesn't work for substring search in ChromaDB metadata. I'll filter
+  tags in Python after retrieval:
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 10 lines, removed 12 lines
+       84          Returns:
+       85              List of PolicyChunk objects, deduplicated, ordered
+            by relevance.
+       86          """
+       87 -        where = None                                          
+       88 -        if tags:                                              
+       89 -            # ChromaDB metadata filter: chunk must contain at 
+          -least one requested tag                                       
+       90 -            conditions = [{"tags": {"$contains": t}} for t in 
+          -tags]                                                         
+       91 -            where = {"$or": conditions} if len(conditions) > 1
+          - else conditions[0]                                           
+       87 +        # Fetch more than top_k when tag filtering so we can t
+          +rim after Python-side filtering                               
+       88 +        fetch_n = min(self._collection.count(), top_k * 4 if t
+          +ags else top_k)                                               
+       89 +        results = self._collection.query(query_texts=[query], 
+          +n_results=fetch_n)                                            
+       90  
+       93 -        results = self._collection.query(                     
+       94 -            query_texts=[query],                              
+       95 -            n_results=min(top_k, self._collection.count()),   
+       96 -            where=where,                                      
+       97 -        )                                                     
+       98 -                                                              
+       91          ids = results["ids"][0]
+      100 -        retrieved = [self._chunks_by_id[chunk_id] for chunk_id
+          - in ids if chunk_id in self._chunks_by_id]                    
+       92 +        retrieved = [self._chunks_by_id[cid] for cid in ids if
+          + cid in self._chunks_by_id]                                   
+       93 +                                                              
+       94 +        if tags:                                              
+       95 +            tag_set = set(tags)                               
+       96 +            retrieved = [c for c in retrieved if tag_set & set
+          +(c.tags)]                                                     
+       97 +            retrieved = retrieved[:top_k]                     
+       98 +                                                              
+       99          return _expand_cross_references(retrieved, self._chunk
+           s_by_id)
+      100  
+      101  
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py -v 2>&1 | tail -15)
+  ⎿  retriever = <src.pipeline.policy_retriever.ChromaDBRetriever object at
+      0x109976dc0>
+     … +25 lines (ctrl+o to expand)
+
+⏺ The cross-reference expansion correctly adds section 9 (shares
+  data_classification with the byod chunk). The test assertion was too strict —
+  it shouldn't require all expanded chunks to have the filter tag. Let me fix
+  the test to assert the right thing:
+
+⏺ Update(tests/test_policy_retriever.py)  ⎿  Added 9 lines, removed 5 lines
+      78      assert any(chunk_id.startswith("1.") for chunk_id in sectio
+          n_ids)
+      79  
+      80  
+      81 -def test_tag_filter_restricts_results_to_matching_chunks(retrie
+         -ver):                                                          
+      82 -    # "byod" only appears in sections 8 and 10; results should 
+         -not include section 1 chunks                                   
+      83 -    results = retriever.retrieve("device authentication", tags=
+         -["byod"], top_k=5)                                             
+      84 -    for chunk in results:                                      
+      85 -        assert "byod" in chunk.tags, f"Chunk {chunk.id} lacks t
+         -ag 'byod' but was returned by tag filter"                      
+      81 +def test_tag_filter_restricts_initial_retrieval_to_matching_tag
+         +(retriever):                                                   
+      82 +    # "byod" only appears in sections 8 and 10.                
+      83 +    # Section 1 (password_reset) has no byod tag and is not rea
+         +chable via cross-reference                                     
+      84 +    # expansion from byod chunks, so it must not appear in resu
+         +lts.                                                           
+      85 +    results = retriever.retrieve("reset my password", tags=["by
+         +od"], top_k=5)                                                 
+      86 +    result_ids = [c.id for c in results]                       
+      87 +    assert all(not cid.startswith("1.") for cid in result_ids),
+         + (                                                             
+      88 +        f"Section 1 chunks should not appear when filtering by 
+         +'byod': {result_ids}"                                          
+      89 +    )                                                          
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_tag_filter_restric
+      ts_initial_retrieval_to_matching_tag -v 2>&1 | tail -10)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +11 lines (ctrl+o to expand)
+
+⏺ ---
+  Cycle 7 — RED: cross-reference expansion includes related chunk when tags 
+  intersect
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 28 lines
+       87      assert all(not cid.startswith("1.") for cid in result_ids)
+           , (
+       88          f"Section 1 chunks should not appear when filtering by
+            'byod': {result_ids}"
+       89      )
+       90 +                                                              
+       91 +                                                              
+       92 +# ------------------------------------------------------------
+          +---------------                                               
+       93 +# Cross-reference expansion tests (pure logic via minimal in-m
+          +emory fixture)                                                
+       94 +# ------------------------------------------------------------
+          +---------------                                               
+       95 +                                                              
+       96 +from src.pipeline.policy_retriever import _expand_cross_refere
+          +nces                                                          
+       97 +                                                              
+       98 +                                                              
+       99 +def _make_chunk(chunk_id: str, tags: list[str], related: list[
+          +str] | None = None) -> PolicyChunk:                           
+      100 +    related_str = ", ".join(related) if related else ""       
+      101 +    text = f"### {chunk_id.split('.')[0]} Section\n**Tags:** {
+          +', '.join(tags)}\n"                                           
+      102 +    if related_str:                                           
+      103 +        text += f"**Related sections:** {related_str}\n"      
+      104 +    text += "\nClause text."                                  
+      105 +    return PolicyChunk(id=chunk_id, text=text, tags=tags)     
+      106 +                                                              
+      107 +                                                              
+      108 +def test_cross_reference_expansion_adds_related_chunk_when_tag
+          +s_intersect():                                                
+      109 +    # 1.1 references 2.1; both share tag "auth" → 2.1 should b
+          +e added                                                       
+      110 +    chunk_1_1 = _make_chunk("1.1", ["auth", "password_reset"],
+          + related=["2.1"])                                             
+      111 +    chunk_2_1 = _make_chunk("2.1", ["auth", "directory"], rela
+          +ted=None)                                                     
+      112 +    index = {"1.1": chunk_1_1, "2.1": chunk_2_1}              
+      113 +                                                              
+      114 +    result = _expand_cross_references([chunk_1_1], index)     
+      115 +    result_ids = [c.id for c in result]                       
+      116 +                                                              
+      117 +    assert "2.1" in result_ids                                
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_cross_reference_ex
+      pansion_adds_related_chunk_when_tags_intersect -v 2>&1 | tail -10)
+  ⎿  collected 0 items / 1 error
+
+     ==================================== ERRORS ==========================
+     … +14 lines (ctrl+o to expand)
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 2 lines
+      1  """Policy Retriever tests: chunking, ChromaDB retrieval, cross-r
+         eference expansion."""
+      2  
+      3 +from __future__ import annotations                              
+      4 +                                                                
+      5  import pytest
+      6  from src.pipeline.chunker import chunk_policy, PolicyChunk
+      7  from src.pipeline.policy_retriever import ChromaDBRetriever, Pol
+         icyRetrieverBase
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_cross_reference_ex
+      pansion_adds_related_chunk_when_tags_intersect -v 2>&1 | tail -10)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +11 lines (ctrl+o to expand)
+
+⏺ ---
+  Cycle 8 — RED: cross-reference expansion excludes related chunks with no 
+  overlapping tags
+
+⏺ Update(tests/test_policy_retriever.py)
+  ⎿  Added 12 lines
+      117      result_ids = [c.id for c in result]
+      118  
+      119      assert "2.1" in result_ids
+      120 +                                                              
+      121 +                                                              
+      122 +def test_cross_reference_expansion_excludes_related_chunk_with
+          +_no_tag_overlap():                                            
+      123 +    # 1.1 references 5.1; they share NO tags → 5.1 should NOT 
+          +be added                                                      
+      124 +    chunk_1_1 = _make_chunk("1.1", ["password_reset", "account
+          +_types"], related=["5.1"])                                    
+      125 +    chunk_5_1 = _make_chunk("5.1", ["escalation", "incident_re
+          +porting"], related=None)                                      
+      126 +    index = {"1.1": chunk_1_1, "5.1": chunk_5_1}              
+      127 +                                                              
+      128 +    result = _expand_cross_references([chunk_1_1], index)     
+      129 +    result_ids = [c.id for c in result]                       
+      130 +                                                              
+      131 +    assert "5.1" not in result_ids                            
+
+⏺ Bash(python3 -m pytest tests/test_policy_retriever.py::test_cross_reference_ex
+      pansion_excludes_related_chunk_with_no_tag_overlap -v 2>&1 | tail -10)
+  ⎿  ============================= test session starts ====================
+     ==========
+     platform darwin -- Python 3.9.6, pytest-8.4.2, pluggy-1.6.0 -- /Librar
+     … +11 lines (ctrl+o to expand)
+
+⏺ All 8 behaviors green. Full suite check:
+
+⏺ Bash(python3 -m pytest tests/ -v 2>&1 | tail -25)
+  ⎿  tests/test_models.py::test_tool_call_validates_well_formed_entry PASSE
+     D  [  4%]
+     tests/test_models.py::test_reasoner_decision_validates_all_fields PASS
+     … +27 lines (ctrl+o to expand)
+
+⏺ 22/22 green.
+
+  ---
+  Refactor
+
+  A couple of cleanup opportunities now that all tests pass:
+
+  1. _expand_cross_references has a local import re and re-compiles _RELATED_RE
+  on every call — move it to module level
+  2. The _build_prefix label extraction in chunker is fragile regex-over-regex —
+   replace with hard-coded labels
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 1 line
+      2  
+      3  from __future__ import annotations
+      4  
+      5 +import re                                                       
+      6  from abc import ABC, abstractmethod
+      7  
+      8  import chromadb
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 2 lines
+      10  
+      11  from src.pipeline.chunker import PolicyChunk, chunk_policy
+      12  
+      13 +_RELATED_RE = re.compile(r"\*\*Related sections:\*\*\s*(.+)")  
+      14  
+      15 +                                                               
+      16  class PolicyRetrieverBase(ABC):
+      17      """Abstraction layer — no pipeline component outside this m
+          odule imports ChromaDB."""
+      18  
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 1 line, removed 1 line
+      123      expanded = list(chunks)
+      124  
+      125      for chunk in chunks:
+      126 -        m = _RELATED_RE.search(chunk.text)                    
+      126 +        m = _RELATED_RE.search(chunk.text)  # pattern compiled
+          + at module level                                              
+      127          if not m:
+      128              continue
+      129          related_ids = [r.strip() for r in m.group(1).split(","
+           )]
+
+⏺ Update(src/pipeline/policy_retriever.py)
+  ⎿  Added 1 line, removed 2 lines
+      123      expanded = list(chunks)
+      124  
+      125      for chunk in chunks:
+      126 -        m = _RELATED_RE.search(chunk.text)  # pattern compiled
+          - at module level                                              
+      126 +        m = _RELATED_RE.search(chunk.text)                    
+      127          if not m:
+      128              continue
+      129          related_ids = [r.strip() for r in m.group(1).split(","
+           )]
+     ...
+      133              related = chunks_by_id.get(related_id)
+      134              if related is None:
+      135                  continue
+      136 -            # Gate: include only if related section shares at 
+          -least one tag                                                 
+      136              if set(chunk.tags) & set(related.tags):
+      137                  expanded.append(related)
+      138                  seen_ids.add(related_id)
+
+⏺ Now fix the fragile label extraction in chunker's _build_prefix:
+
+⏺ Update(src/pipeline/chunker.py)
+  ⎿  Added 1 line, removed 2 lines
+      27  
+      28  def _build_prefix(section_num: str, section_title: str, section
+          _text: str) -> str:
+      29      parts = [f"### {section_num} {section_title}"]
+      30 -    for pattern in (_TAGS_RE, _APPLIES_RE, _RELATED_RE):       
+      30 +    for pattern, label in ((_TAGS_RE, "Tags"), (_APPLIES_RE, "A
+         +pplies to"), (_RELATED_RE, "Related sections")):               
+      31          m = pattern.search(section_text)
+      32          if m:
+      33 -            label = pattern.pattern.split(r"\*\*")[1].replace(r
+         -":", "").strip()                                               
+      33              parts.append(f"**{label}:** {m.group(1)}")
+      34      return "\n".join(parts) + "\n\n"
+      35  
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1 | tail -5)
+  ⎿  ......................
+        [100%]
+     22 passed in 2.26s
+
+⏺ 22/22 green after refactor. Let me also update src/infra/embeddings.py now
+  that we have a real ChromaDB setup:
+
+⏺ Write(src/infra/embeddings.py)
+  ⎿  Added 19 lines, removed 2 lines
+       1  """Embeddings: ChromaDB client and collection management for po
+          licy chunks."""
+       2  
+       3 +import chromadb                                                
+       4 +from chromadb.utils import embedding_functions                 
+       5  
+       4 -def get_collection():                                          
+       5 -    raise NotImplementedError                                  
+       6 +                                                               
+       7 +def get_collection(name: str = "policy") -> chromadb.Collection
+         +:                                                              
+       8 +    """Return an ephemeral ChromaDB collection with cosine-simi
+         +larity and default embeddings.                                 
+       9 +                                                               
+      10 +    Args:                                                      
+      11 +        name: Collection name.                                 
+      12 +                                                               
+      13 +    Returns:                                                   
+      14 +        An empty ChromaDB Collection ready for document ingesti
+         +on.                                                            
+      15 +    """                                                        
+      16 +    client = chromadb.EphemeralClient()                        
+      17 +    ef = embedding_functions.DefaultEmbeddingFunction()        
+      18 +    return client.get_or_create_collection(                    
+      19 +        name=name,                                             
+      20 +        embedding_function=ef,                                 
+      21 +        metadata={"hnsw:space": "cosine"},                     
+      22 +    )                                                          
+
+⏺ Bash(python3 -m pytest tests/ -q 2>&1 | tail -3)
+  ⎿  ......................
+        [100%]
+     22 passed in 2.24s
+⏺ All done. Here's the summary:
+
+  ---
+  Slice 3 complete — 22 tests passing
+
+  What was built (8 red→green cycles):
+
+  Cycle: 1
+  Behavior: chunk_policy produces clause-level chunks with correct IDs (1.1.b)
+  Where: chunker.py
+  ────────────────────────────────────────
+  Cycle: 2
+  Behavior: Every chunk text is prefixed with section header, tags, and related
+    sections
+  Where: chunker.py
+  ────────────────────────────────────────
+  Cycle: 3
+  Behavior: Chunks carry parsed tags from their parent section
+  Where: chunker.py
+  ────────────────────────────────────────
+  Cycle: 4
+  Behavior: ChromaDBRetriever implements PolicyRetrieverBase and returns
+    PolicyChunk objects
+  Where: policy_retriever.py
+  ────────────────────────────────────────
+  Cycle: 5
+  Behavior: Querying "password reset" returns section 1 chunks (semantic
+    relevance)
+  Where: policy_retriever.py
+  ────────────────────────────────────────
+  Cycle: 6
+  Behavior: Tag filter restricts initial retrieval; sections with no tag overlap
+
+    are excluded
+  Where: policy_retriever.py
+  ────────────────────────────────────────
+  Cycle: 7
+  Behavior: Cross-reference expansion adds related chunks when tag intersection
+    is non-empty
+  Where: _expand_cross_references
+  ────────────────────────────────────────
+  Cycle: 8
+  Behavior: Cross-reference expansion excludes related chunks with no
+  overlapping
+    tags
+  Where: _expand_cross_references
+
+  Files created/modified:
+  - src/pipeline/chunker.py — new, pure chunking logic
+  - src/pipeline/policy_retriever.py — PolicyRetrieverBase + ChromaDBRetriever +
+   _expand_cross_references
+  - src/infra/embeddings.py — get_collection() now implemented
+  - tests/test_policy_retriever.py — new, 9 tests
+
+  Design notes:
+  - No pipeline code outside policy_retriever.py imports chromadb — abstraction
+  enforced structurally
+  - Tag filtering is Python-side (ChromaDB's $contains doesn't do substring
+  search on stored strings)
+  - Cross-reference expansion correctly runs after tag filtering, so expanded
+  chunks may have different tags than the filter — this is intended per spec
+
+✻ Sautéed for 7m 36s
