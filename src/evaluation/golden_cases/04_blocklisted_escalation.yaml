@@ -1,0 +1,13 @@
+id: blocklisted_identity_escalated
+request: "Reset my password."
+identity: mallory
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: managed
+blocked:
+  - mallory
+store_resets: 0
+policy_chunks:
+  - id: "5.1"
+    text: "§5.1. Identities flagged by IT Security must be routed exclusively to human escalation. No automated action may be taken on their behalf."
+    tags: [escalation, security]

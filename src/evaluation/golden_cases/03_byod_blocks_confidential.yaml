@@ -1,0 +1,12 @@
+id: byod_blocks_confidential_drive
+request: "Grant me access to the Confidential Engineering drive."
+identity: alice
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: byod
+blocked: []
+store_resets: 0
+policy_chunks:
+  - id: "8.2"
+    text: "§8.2. Confidential and Restricted resources may not be accessed from BYOD or unenrolled devices. Requests from such devices must be denied with instructions to use a managed device."
+    tags: [device, confidential, access]

@@ -1,0 +1,12 @@
+id: rate_limit_escalate_informed
+request: "Please reset my password."
+identity: alice
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: managed
+blocked: []
+store_resets: 3
+policy_chunks:
+  - id: "1.1.b"
+    text: "§1.1.b. Password resets are limited to 3 per account per rolling 30-day window. Requests exceeding this limit must be escalated to IT Security."
+    tags: [password, rate-limit]
