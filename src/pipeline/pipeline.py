@@ -105,15 +105,26 @@ class Pipeline:
         # Tool Executor
         tool_results: list[dict] = []
         if decision.action == "allow" and decision.tool_calls:
-            tool_results = tool_executor.execute(
-                decision=decision,
-                trust_tier=tier,
-                risk=risk,
-                registry=self._registry,
-                tracer=tracer,
-                store=self._store,
-                identity=context.identity,
-            )
+            try:
+                tool_results = tool_executor.execute(
+                    decision=decision,
+                    trust_tier=tier,
+                    risk=risk,
+                    registry=self._registry,
+                    tracer=tracer,
+                    store=self._store,
+                    identity=context.identity,
+                )
+            except PermissionError as exc:
+                # Executor independently enforces rate limits and red-risk constraints.
+                # If it rejects after the Reasoner said allow, escalate rather than crash.
+                decision = ReasonerDecision(
+                    action="escalate",
+                    tool_calls=[],
+                    reasoning=str(exc),
+                    cited_sections=decision.cited_sections,
+                    user_message_draft=f"Request escalated: {exc}",
+                )
 
         _write_trace(tracer)
         return PipelineResult(decision=decision, tool_results=tool_results, trust_tier=tier, risk=risk)
