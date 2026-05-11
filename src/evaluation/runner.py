@@ -83,12 +83,16 @@ def _run_scenario(scenario: dict, llm_call_fn: Callable, log_path: str) -> dict:
         llm_call_fn=llm_call_fn,
     )
 
+    total_latency_ms = sum(span.latency_ms for span in tracer.spans)
+    total_cost = sum(span.outputs.get("cost", 0.0) for span in tracer.spans)
     return {
         "id": scenario["id"],
         "verdict": verdict.verdict,
         "confidence": verdict.confidence,
         "reasoning": verdict.reasoning,
         "action": result.decision.action,
+        "total_latency_ms": total_latency_ms,
+        "total_cost": total_cost,
     }
 
 
@@ -108,7 +112,7 @@ def run_golden_suite(cases_path: str, llm_call_fn: Optional[Callable] = None) ->
     log_path = tempfile.mktemp(suffix=".log")
     yaml_files = sorted(Path(cases_path).glob("*.yaml"))
 
-    report: dict = {"total": 0, "pass": 0, "fail": 0, "uncertain": 0, "scenarios": []}
+    report: dict = {"total": 0, "pass": 0, "fail": 0, "uncertain": 0, "total_latency_ms": 0.0, "total_cost": 0.0, "scenarios": []}
 
     for path in yaml_files:
         with path.open() as f:
@@ -116,6 +120,8 @@ def run_golden_suite(cases_path: str, llm_call_fn: Optional[Callable] = None) ->
         detail = _run_scenario(scenario, llm_call_fn, log_path)
         report["total"] += 1
         report[detail["verdict"]] += 1
+        report["total_latency_ms"] += detail["total_latency_ms"]
+        report["total_cost"] += detail["total_cost"]
         report["scenarios"].append(detail)
 
     return report
@@ -132,6 +138,8 @@ def _print_summary(report: dict) -> None:
         print(f"  [{s['verdict'].upper():9s}] {s['id']}  (confidence={s['confidence']:.2f})")
         if s["verdict"] != "pass":
             print(f"             {s['reasoning']}")
+    print(f"\nTOTAL_LATENCY: {report['total_latency_ms']:.1f}ms")
+    print(f"TOTAL_COST:    ${report['total_cost']:.6f}")
 
 
 if __name__ == "__main__":

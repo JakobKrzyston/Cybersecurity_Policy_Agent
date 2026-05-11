@@ -18,7 +18,7 @@ _GREETING = (
 )
 
 
-def process_request(request: str, session: Session, context: SessionContext, pipeline: Pipeline) -> str:
+def process_request(request: str, session: Session, context: SessionContext, pipeline: Pipeline) -> tuple[str, Tracer]:
     """Run one request through the pipeline and update session history.
 
     Args:
@@ -28,12 +28,12 @@ def process_request(request: str, session: Session, context: SessionContext, pip
         pipeline: Configured Pipeline instance.
 
     Returns:
-        The user_message_draft from the Reasoner Decision.
+        Tuple of (user_message_draft, tracer) for the completed request.
     """
     tracer = Tracer()
     result: PipelineResult = pipeline.run(request, session, context, tracer)
     session.request_history.append({"request": request, "action": result.decision.action})
-    return result.decision.user_message_draft
+    return result.decision.user_message_draft, tracer
 
 
 def _default_context() -> SessionContext:
@@ -72,12 +72,16 @@ def main(pipeline: Pipeline, context: SessionContext | None = None) -> None:
             print("Goodbye.")
             break
 
-        reply = process_request(request, session, context, pipeline)
+        reply, tracer = process_request(request, session, context, pipeline)
         print(reply)
 
+        total_latency_ms = sum(span.latency_ms for span in tracer.spans)
+        total_cost = sum(span.outputs.get("cost", 0.0) for span in tracer.spans)
         summary = (
             f"[action={session.request_history[-1]['action']} "
-            f"turns={len(session.request_history)}]"
+            f"turns={len(session.request_history)} "
+            f"TOTAL_LATENCY={total_latency_ms:.1f}ms "
+            f"TOTAL_COST=${total_cost:.6f}]"
         )
         print(summary, file=sys.stderr)
 

@@ -76,5 +76,5 @@ def test_process_request_returns_user_message_draft(tmp_path, monkeypatch):
     from src.repl import process_request
     session = Session()
     pipeline = _make_pipeline()
-    reply = process_request("Reset my password", session, _ctx(), pipeline)
+    reply, _ = process_request("Reset my password", session, _ctx(), pipeline)
     assert reply == "Your request is approved."
