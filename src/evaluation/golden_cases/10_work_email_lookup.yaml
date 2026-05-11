@@ -1,0 +1,15 @@
+id: work_email_lookup
+request: "Can I get David Kim's work email?"
+identity: EMP-2200
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: managed
+blocked: []
+store_resets: 0
+policy_chunks:
+  - id: "2.1"
+    text: "§2.1. Employee directory information — including name, job title, department, work email, and work phone — may be shared with verified employees on request."
+    tags: [directory, identity]
+  - id: "2.3"
+    text: "§2.3. Work contact details (work email, work phone, office location) are directory information and may be disclosed to verified employees."
+    tags: [directory, contact]

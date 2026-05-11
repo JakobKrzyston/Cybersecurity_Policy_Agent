@@ -1,0 +1,12 @@
+id: directory_department_lookup
+request: "What department does Sarah Chen work in?"
+identity: EMP-3300
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: managed
+blocked: []
+store_resets: 0
+policy_chunks:
+  - id: "2.1"
+    text: "§2.1. Employee directory information — including name, job title, department, work email, and work phone — may be shared with verified employees on request."
+    tags: [directory, identity]

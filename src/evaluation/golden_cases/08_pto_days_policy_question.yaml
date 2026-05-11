@@ -1,0 +1,12 @@
+id: pto_days_policy_question
+request: "How many PTO days do we get per year?"
+identity: EMP-1500
+sso_age_hours: 1.0
+mfa_age_hours: 0.5
+device_type: managed
+blocked: []
+store_resets: 0
+policy_chunks:
+  - id: "4.1"
+    text: "§4.1. General HR policy information — including leave balances, PTO accrual rates, benefit summaries, and policy FAQs — may be provided to any verified employee on request."
+    tags: [hr, policy]
