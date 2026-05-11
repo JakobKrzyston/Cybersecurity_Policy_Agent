@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.infra.store import InMemoryRateLimitStore
 from src.models.decision import ReasonerDecision, ToolCall
 from src.pipeline.tool_executor import execute
 
@@ -71,3 +72,34 @@ def test_empty_tool_calls_returns_empty_list():
     decision = _decision([])
     results = execute(decision, trust_tier="managed_device", risk="blue", registry={}, tracer=None)
     assert results == []
+
+
+def test_reset_password_blocked_when_rate_limit_reached():
+    store = InMemoryRateLimitStore()
+    for _ in range(3):
+        store.record_action("alice", "reset_password")
+    registry = {"reset_password": lambda account_id: {"status": "reset", "account_id": account_id}}
+    decision = _decision([_tool_call("reset_password", {"account_id": "alice"})])
+    with pytest.raises(PermissionError, match="rate limit"):
+        execute(decision, trust_tier="managed_device", risk="blue",
+                registry=registry, tracer=None, store=store, identity="alice")
+
+
+def test_reset_password_allowed_below_rate_limit():
+    store = InMemoryRateLimitStore()
+    for _ in range(2):
+        store.record_action("alice", "reset_password")
+    registry = {"reset_password": lambda account_id: {"status": "reset", "account_id": account_id}}
+    decision = _decision([_tool_call("reset_password", {"account_id": "alice"})])
+    results = execute(decision, trust_tier="managed_device", risk="blue",
+                      registry=registry, tracer=None, store=store, identity="alice")
+    assert results[0]["result"]["status"] == "reset"
+
+
+def test_reset_password_records_action_after_execution():
+    store = InMemoryRateLimitStore()
+    registry = {"reset_password": lambda account_id: {"status": "reset", "account_id": account_id}}
+    decision = _decision([_tool_call("reset_password", {"account_id": "alice"})])
+    execute(decision, trust_tier="managed_device", risk="blue",
+            registry=registry, tracer=None, store=store, identity="alice")
+    assert store.count_recent("alice", "reset_password", window_days=30) == 1

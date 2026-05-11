@@ -83,6 +83,7 @@ def main(pipeline: Pipeline, context: SessionContext | None = None) -> None:
 
 
 if __name__ == "__main__":
+    from src.infra.store import SQLiteRateLimitStore
     from src.pipeline.trust_gate import InMemoryBlocklist
     from src.pipeline.policy_retriever import ChromaDBRetriever
     from src.tools.reset_password import reset_password
@@ -105,5 +106,6 @@ if __name__ == "__main__":
         blocklist=InMemoryBlocklist(blocked=set()),
         retriever=retriever,
         registry=registry,
+        store=SQLiteRateLimitStore("rate_limits.db"),
     )
     main(p)

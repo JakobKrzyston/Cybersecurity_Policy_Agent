@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from src.infra.store import RateLimitStore
 from src.models.decision import ReasonerDecision
 from src.models.session import Session, SessionContext
 from src.models.trace import PipelineSpan, Tracer
@@ -39,11 +40,13 @@ class Pipeline:
         blocklist,
         retriever: PolicyRetrieverBase,
         registry: dict,
+        store: Optional[RateLimitStore] = None,
         llm_call_fn: Optional[Callable] = None,
     ) -> None:
         self._blocklist = blocklist
         self._retriever = retriever
         self._registry = registry
+        self._store = store
         self._llm_call_fn = llm_call_fn
 
     def run(
@@ -108,6 +111,8 @@ class Pipeline:
                 risk=risk,
                 registry=self._registry,
                 tracer=tracer,
+                store=self._store,
+                identity=context.identity,
             )
 
         _write_trace(tracer)
