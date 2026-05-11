@@ -1,0 +1,220 @@
+╭─── Claude Code v2.1.138 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                   Welcome back j!                  │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Internal fixes          │
+│ Sonnet 4.6 · Claude Pro · jaykrzyston@gmail.com's  │ [VSCode] Fixed extensi… │
+│ Organization                                       │ Added `CLAUDE_CODE_ENA… │
+│       ~/Documents/Cybersecurity_Policy_Agent       │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ /engineering:setup-matt-pocock-skills                                         
+
+⏺ I'll start by exploring the repo to understand its current state.
+
+⏺ Bash(git remote -v && echo "---" && cat .git/config)
+  ⎿  origin     https://github.com/JakobKrzyston/Cybersecurity_Policy_Age
+     nt.git
+     (fetch)
+     origin     https://github.com/JakobKrzyston/Cybersecurity_Policy_Age
+     nt.git
+     … +16 lines (ctrl+o to expand)
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+⏺ Here's what I found:
+
+  Present:
+  - GitHub remote at github.com/JakobKrzyston/Cybersecurity_Policy_Agent
+  - README.md, gaggia_helpdesk_policy.md, Claude_transcripts/
+
+  Missing:
+  - No CLAUDE.md or AGENTS.md
+  - No CONTEXT.md or docs/adr/
+  - No docs/agents/ or .scratch/
+
+  Let's configure the three settings one at a time. Starting with the first:
+
+  ---
+  Section A — Issue tracker
+
+  This is where issues (bugs, features, tasks) live for this repo. Skills like
+  to-issues, triage, and to-prd need to know where to create and read issues.
+  Your repo already has a GitHub remote, so GitHub Issues is the natural fit —
+  but pick what you actually use.
+
+⏺ User answered Claude's questions:
+  ⎿  · Where do you track issues for this repo? → GitHub Issues
+
+⏺ GitHub Issues it is. Moving on:
+
+  ---
+  Section B — Triage label vocabulary
+
+  When the triage skill processes an issue, it moves it through a state machine
+  by applying labels. These five labels are the canonical ones — if your repo
+  already uses different label names (e.g. bug:triage instead of needs-triage),
+  map them here so skills apply the right ones instead of creating duplicates.
+
+  The five canonical labels and their defaults:
+
+  ┌─────────────────────────────────────────┬─────────────────┐
+  │                  Role                   │  Default label  │
+  ├─────────────────────────────────────────┼─────────────────┤
+  │ Maintainer needs to evaluate            │ needs-triage    │
+  ├─────────────────────────────────────────┼─────────────────┤
+  │ Waiting on reporter                     │ needs-info      │
+  ├─────────────────────────────────────────┼─────────────────┤
+  │ Fully specified, ready for an AFK agent │ ready-for-agent │
+  ├─────────────────────────────────────────┼─────────────────┤
+  │ Needs human implementation              │ ready-for-human │
+  ├─────────────────────────────────────────┼─────────────────┤
+  │ Will not be actioned                    │ wontfix         │
+  └─────────────────────────────────────────┴─────────────────┘
+
+⏺ User answered Claude's questions:
+  ⎿  · Do the default label names work for this repo, or do you need to override
+      any? → Defaults are fine
+
+⏺ Defaults locked in. Last one:
+
+  ---
+  Section C — Domain docs
+
+  Some skills (improve-codebase-architecture, diagnose, tdd) read a CONTEXT.md
+  to learn the project's domain language, and docs/adr/ for past architectural
+  decisions. They need to know the layout so they look in the right place.
+
+  - Single-context — one CONTEXT.md + docs/adr/ at the repo root. The norm for
+  most repos.
+  - Multi-context — a CONTEXT-MAP.md at the root pointing to per-context files
+  (typical for monorepos with separate frontend/backend/service contexts).
+
+⏺ User answered Claude's questions:
+  ⎿  · What's the domain doc layout for this repo? → Single-context
+
+⏺ All three decisions made. Let me read the template files before showing you
+  the draft.
+
+  Read 3 files (ctrl+o to expand)
+
+⏺ Neither CLAUDE.md nor AGENTS.md exists yet, so I need to ask which to create
+  before showing the draft.
+
+⏺ User answered Claude's questions:
+  ⎿  · Neither CLAUDE.md nor AGENTS.md exists in this repo. Which should be 
+     created? → AGENTS.md
+
+⏺ Here's the full draft. Review it and let me know if you'd like any changes
+  before I write the files.
+
+  ---
+  AGENTS.md (new file):
+  ## Agent skills
+
+  ### Issue tracker
+
+  Issues live in GitHub Issues for this repo (uses the `gh` CLI). See
+  `docs/agents/issue-tracker.md`.
+
+  ### Triage labels
+
+  Five canonical labels with default names (`needs-triage`, `needs-info`,
+  `ready-for-agent`, `ready-for-human`, `wontfix`). See
+  `docs/agents/triage-labels.md`.
+
+  ### Domain docs
+
+  Single-context repo — one `CONTEXT.md` + `docs/adr/` at the repo root. See
+  `docs/agents/domain.md`.
+
+  ---
+  docs/agents/issue-tracker.md — GitHub issue tracker conventions (gh CLI
+  commands for create/read/list/comment/label/close).
+
+  docs/agents/triage-labels.md — Maps the five canonical triage roles to their
+  label strings (all defaults).
+
+  docs/agents/domain.md — Consumer rules for CONTEXT.md and docs/adr/,
+  single-context layout diagram, vocabulary and ADR-conflict guidance.
+
+  ---
+  Happy with this, or do you want to tweak anything?
+
+⏺ User answered Claude's questions:
+  ⎿  · Ready to write these files? → Write them
+
+⏺ Write(AGENTS.md)
+  ⎿  Wrote 13 lines to AGENTS.md
+      2 ## Agent skills
+      3 ### Issue tracker
+      4 
+      5 Issues live in GitHub Issues for this repo (uses the `gh` CLI). S
+        ee `docs/agents/issue-tracker.md`.
+      7 ### Triage labels
+      8 
+      9 Five canonical labels with default names (`needs-triage`, `needs-
+        info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `doc
+        s/agents/triage-labels.md`.
+     … +7 lines (ctrl+o to expand)
+
+⏺ Bash(mkdir -p /Users/jay/Documents/Cybersecurity_Policy_Agent/docs/agents)
+  ⎿  Done
+
+⏺ Write(docs/agents/issue-tracker.md)
+  ⎿  Wrote 22 lines to docs/agents/issue-tracker.md
+       2 # Issue tracker: GitHub
+         ` CLI for all operations.repo live as GitHub issues. Use the `gh
+       5 ## Conventions
+       6 
+         ."`. Use a heredoc for multi-line bodies.-title "..." --body "..
+         ing comments by `jq` and also fetching labels.-comments`, filter
+       9 - **List issues**: `gh issue list --state open --json number,tit
+         s: [.labels[].name], comments: [.comments[].body]}]'` with appro
+      10 - **Comment on an issue**: `gh issue comment <number> --body "..
+         ."`
+     … +20 lines (ctrl+o to expand)
+
+⏺ Write(docs/agents/triage-labels.md)
+  ⎿  Wrote 15 lines to docs/agents/triage-labels.md
+       2 # Triage Labels
+         ile maps those roles to the actual label strings used in this re
+       4 po's issue tracker.
+       5 | Label in mattpocock/skills | Label in our tracker | Meaning   
+       6 | -------------------------- | -------------------- | ----------
+       7 | `needs-triage`             | `needs-triage`       | Maintainer
+          needs to evaluate this issue  |
+          reporter for more information |needs-info`         | Waiting on
+         ified, ready for an AFK agent  |ready-for-agent`    | Fully spec
+      10 | `ready-for-human`          | `ready-f
+     … +16 lines (ctrl+o to expand)
+
+⏺ Write(docs/agents/domain.md)
+  ⎿  Wrote 51 lines to docs/agents/domain.md
+      2 # Domain Docs
+      3 How the engineering skills should consume this repo's domain docu
+      4 mentation when exploring the codebase.
+      5 ## Before exploring, read these
+      6 
+      8 - **`CONTEXT-MAP.md`** at the repo root if it exists — it points 
+        at one `CONTEXT.md` per context. Read each one relevant to the to
+      9 - **`docs/adr/`** — read ADRs that touch the area you're about to
+         work in. In multi-context repos, also check `src/<context>/docs/
+        adr/` for context-scoped decisions.
+     … +55 lines (ctrl+o to expand)
+⏺ Setup complete. Four files written:
+
+  - AGENTS.md — the ## Agent skills block pointing to the three docs
+  - docs/agents/issue-tracker.md — GitHub Issues via gh CLI
+  - docs/agents/triage-labels.md — five canonical labels (all defaults)
+  - docs/agents/domain.md — single-context consumer rules for CONTEXT.md +
+  docs/adr/
+
+  Skills that will now read these: to-issues, triage, to-prd,
+  improve-codebase-architecture, diagnose, tdd, and grill-with-docs. You can
+  edit the files in docs/agents/ directly at any time — re-running this skill is
+   only needed if you want to switch issue trackers or start over.
+
+✻ Brewed for 1m 28s
