@@ -1,0 +1,6 @@
+anthropic>=0.96.0
+chromadb>=1.5.8
+pydantic>=2.13.0
+PyYAML>=6.0.3
+sentence-transformers>=5.1.2
+pytest>=7.0.0

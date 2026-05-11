@@ -52,7 +52,10 @@ def execute(
                 )
         if tool_call.tool not in registry:
             raise KeyError(f"Tool '{tool_call.tool}' is not in the registry.")
-        raw = registry[tool_call.tool](**tool_call.arguments)
+        try:
+            raw = registry[tool_call.tool](**tool_call.arguments)
+        except (TypeError, ValueError) as exc:
+            raw = {"error": str(exc)}
         filtered = filter_output(tool_call.tool, raw, tracer)
         if store is not None and tool_call.tool in _RATE_LIMITS:
             store.record_action(identity, tool_call.tool)

@@ -75,7 +75,13 @@ def score(
     )
 
     try:
-        data = json.loads(result["content"])
+        raw = result["content"].strip()
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rsplit("```", 1)[0].strip()
+        data = json.loads(raw)
         return JudgeVerdict(**data)
     except Exception:
         return _FALLBACK_VERDICT
